@@ -1090,8 +1090,7 @@ jobs:
 
               /** Son sürüm bilgisini getirir; bulunamazsa null. */
               public static Release latest() throws IOException {
-                  HttpURLConnection con = open(API);
-                  con.setRequestProperty("Accept", "application/vnd.github+json");
+                  HttpURLConnection con = open(API, "application/vnd.github+json");
                   int code = con.getResponseCode();
                   if (code == 404) return null;
                   if (code != 200) throw new IOException("GitHub yanıtı: " + code);
@@ -1129,7 +1128,7 @@ jobs:
                   int sessionId = pi.createSession(params);
                   PackageInstaller.Session session = pi.openSession(sessionId);
                   try {
-                      HttpURLConnection con = open(url);
+                      HttpURLConnection con = open(url, null);
                       int code = con.getResponseCode();
                       if (code != 200) throw new IOException("İndirme hatası: " + code);
                       long len = con.getContentLengthLong();
@@ -1155,7 +1154,7 @@ jobs:
                   }
               }
 
-              private static HttpURLConnection open(String url) throws IOException {
+              private static HttpURLConnection open(String url, String accept) throws IOException {
                   // GitHub indirme linkleri başka bir alan adına yönlendirir; yönlendirmeleri elle takip et
                   for (int hop = 0; hop < 6; hop++) {
                       HttpURLConnection con = (HttpURLConnection) new URL(url).openConnection();
@@ -1163,6 +1162,7 @@ jobs:
                       con.setConnectTimeout(15000);
                       con.setReadTimeout(60000);
                       con.setRequestProperty("User-Agent", "FaturaSMS-Android");
+                      if (accept != null) con.setRequestProperty("Accept", accept);
                       int code = con.getResponseCode();
                       if (code >= 300 && code < 400) {
                           String loc = con.getHeaderField("Location");
