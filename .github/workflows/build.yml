@@ -1,0 +1,1143 @@
+name: APK derle
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Proje dosyalarini olustur
+        run: |
+          mkdir -p 'app'
+          cat > 'app/build.gradle' <<'FATURA_EOF'
+          plugins {
+              id 'com.android.application'
+          }
+
+          android {
+              namespace 'com.altintas.faturasms'
+              compileSdk 34
+
+              defaultConfig {
+                  applicationId 'com.altintas.faturasms'
+                  minSdk 26
+                  targetSdk 34
+                  versionCode(100 + (System.getenv('GITHUB_RUN_NUMBER') ?: '0').toInteger())
+                  versionName "1." + (100 + (System.getenv('GITHUB_RUN_NUMBER') ?: '0').toInteger())
+              }
+
+              signingConfigs {
+                  release {
+                      storeFile file('release.keystore')
+                      storePassword 'fatura-sms-imza'
+                      keyAlias 'faturasms'
+                      keyPassword 'fatura-sms-imza'
+                  }
+              }
+
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                      signingConfig signingConfigs.release
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+                  encoding 'UTF-8'
+              }
+
+              lint {
+                  checkReleaseBuilds false
+                  abortOnError false
+              }
+          }
+          FATURA_EOF
+          mkdir -p 'app/src/main'
+          cat > 'app/src/main/AndroidManifest.xml' <<'FATURA_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-permission android:name="android.permission.RECEIVE_SMS" />
+              <uses-permission android:name="android.permission.READ_SMS" />
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+              <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+              <uses-feature android:name="android.hardware.telephony" android:required="false" />
+
+              <application
+                  android:allowBackup="false"
+                  android:icon="@mipmap/ic_launcher"
+                  android:label="Fatura SMS"
+                  android:theme="@android:style/Theme.Material.Light.DarkActionBar">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+
+                  <receiver
+                      android:name=".SmsReceiver"
+                      android:exported="true"
+                      android:permission="android.permission.BROADCAST_SMS">
+                      <intent-filter android:priority="999">
+                          <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+                      </intent-filter>
+                  </receiver>
+                  <receiver
+                      android:name=".InstallReceiver"
+                      android:exported="false" />
+              </application>
+          </manifest>
+          FATURA_EOF
+          mkdir -p 'app/src/main/java/com/altintas/faturasms'
+          cat > 'app/src/main/java/com/altintas/faturasms/BillFilter.java' <<'FATURA_EOF'
+          package com.altintas.faturasms;
+
+          import java.util.Locale;
+          import java.util.regex.Pattern;
+
+          /** Hangi SMS'in fatura/borç bildirimi olduğuna karar verir. Android'e bağımlı değil. */
+          public final class BillFilter {
+              private BillFilter() {}
+
+              // Bilinen kurum gönderen adları (normalize edilmiş, küçük harf, Türkçe karaktersiz)
+              private static final Pattern SENDER = Pattern.compile(
+                      "(\\bck\\b|ckbogazici|bogazici|ckenerji|enerjisa|iski|igdas|aksa|gaz|elektrik|edas|bedas|ayedas|"
+                      + "toroslar|baskent|aski|izsu|buski|meski|koski|asat|suski|\\bsu\\b)");
+
+              // Fatura/borç içeriği
+              private static final Pattern CONTENT = Pattern.compile(
+                      "(fatura|son odeme|borcunuz|borc bilgi|odenmemis|abone|tesisat|sozlesme hesab|\\bkwh\\b|\\bm3\\b|tuketim)");
+
+              // Tutar
+              private static final Pattern AMOUNT = Pattern.compile("(\\d[\\d.,]*\\s*(tl|try)\\b|tutar)");
+
+              // Asla iletilmeyecek özel mesajlar (doğrulama kodları vb.)
+              private static final Pattern PRIVATE = Pattern.compile(
+                      "(sifre|dogrulama|onay kodu|tek kullanimlik|\\botp\\b|parola|guvenlik kodu|giris kodu|kodunuz)");
+
+              public static String norm(String s) {
+                  if (s == null) return "";
+                  StringBuilder b = new StringBuilder(s.length());
+                  for (int i = 0; i < s.length(); i++) {
+                      char c = s.charAt(i);
+                      switch (c) {
+                          case 'İ': case 'I': case 'ı': b.append('i'); break;
+                          case 'Ş': case 'ş': b.append('s'); break;
+                          case 'Ğ': case 'ğ': b.append('g'); break;
+                          case 'Ü': case 'ü': b.append('u'); break;
+                          case 'Ö': case 'ö': b.append('o'); break;
+                          case 'Ç': case 'ç': b.append('c'); break;
+                          case '³': b.append('3'); break;
+                          case '̇': break; // birleşik nokta
+                          default: b.append(Character.toLowerCase(c));
+                      }
+                  }
+                  return b.toString().toLowerCase(Locale.ROOT);
+              }
+
+              public static boolean isBill(String from, String body) {
+                  String f = norm(from), t = norm(body);
+                  if (PRIVATE.matcher(t).find()) return false;
+                  boolean content = CONTENT.matcher(t).find();
+                  if (!content) return false;
+                  boolean sender = SENDER.matcher(f).find() || SENDER.matcher(t).find();
+                  boolean amount = AMOUNT.matcher(t).find();
+                  return sender || (amount && t.contains("fatura"));
+              }
+          }
+          FATURA_EOF
+          mkdir -p 'app/src/main/java/com/altintas/faturasms'
+          cat > 'app/src/main/java/com/altintas/faturasms/Forwarder.java' <<'FATURA_EOF'
+          package com.altintas.faturasms;
+
+          import android.content.ContentResolver;
+          import android.content.Context;
+          import android.database.Cursor;
+          import android.net.Uri;
+          import android.provider.Telephony;
+
+          import java.text.SimpleDateFormat;
+          import java.util.ArrayList;
+          import java.util.Date;
+          import java.util.List;
+          import java.util.Locale;
+
+          /** Fatura SMS'lerini Gmail'e iletir. Ağ işlemi yaptığı için ana iş parçacığında çağrılmamalı. */
+          public final class Forwarder {
+              private Forwarder() {}
+
+              public static final String HOST = "smtp.gmail.com";
+              public static final int PORT = 465;
+
+              public static class Result {
+                  public int found, sent, failed, skipped;
+                  public String error;
+              }
+
+              /** Yeni gelen veya taranan SMS'leri işler; önce bekleyen kuyruğu da dener. */
+              public static synchronized Result process(Context ctx, List<Sms> incoming) {
+                  Store st = new Store(ctx);
+                  Result r = new Result();
+                  List<Sms> work = new ArrayList<>(st.queue());
+                  for (Sms s : incoming) if (BillFilter.isBill(s.from, s.body)) work.add(s);
+                  r.found = work.size();
+                  if (work.isEmpty()) return r;
+                  if (!st.configured()) {
+                      st.setQueue(dedupe(work, st));
+                      r.error = "Gmail adresi ve uygulama şifresi girilmemiş";
+                      st.log("Bekletildi: " + work.size() + " SMS (ayar eksik)");
+                      return r;
+                  }
+                  List<Sms> failed = new ArrayList<>();
+                  for (Sms s : dedupe(work, st)) {
+                      if (st.isSent(s.key())) { r.skipped++; continue; }
+                      try {
+                          Smtp.send(HOST, PORT, true, st.email(), st.pass(), st.email(), subject(s), body(s));
+                          st.markSent(s.key());
+                          r.sent++;
+                          st.log("Gönderildi: " + s.from + " — " + shorten(s.body));
+                      } catch (Smtp.SmtpException e) {
+                          failed.add(s); r.failed++;
+                          r.error = e.code == 535 || e.code == 534
+                                  ? "Gmail şifreyi kabul etmedi. Normal şifre değil, 16 haneli uygulama şifresi gerekli."
+                                  : "Gmail hatası (" + e.code + ")";
+                          st.log("Hata: " + r.error);
+                      } catch (Exception e) {
+                          failed.add(s); r.failed++;
+                          r.error = "İnternet yok veya Gmail'e ulaşılamadı";
+                          st.log("Hata: " + r.error + " — sonra tekrar denenecek");
+                      }
+                  }
+                  st.setQueue(failed);
+                  return r;
+              }
+
+              private static List<Sms> dedupe(List<Sms> in, Store st) {
+                  List<Sms> out = new ArrayList<>();
+                  List<String> keys = new ArrayList<>();
+                  for (Sms s : in) {
+                      String k = s.key();
+                      if (keys.contains(k) || st.isSent(k)) continue;
+                      keys.add(k);
+                      out.add(s);
+                  }
+                  return out;
+              }
+
+              /** Gelen kutusundaki son N günün SMS'leri. */
+              public static List<Sms> readInbox(Context ctx, int days) {
+                  List<Sms> out = new ArrayList<>();
+                  long since = System.currentTimeMillis() - days * 86400000L;
+                  ContentResolver cr = ctx.getContentResolver();
+                  Uri uri = Telephony.Sms.Inbox.CONTENT_URI;
+                  String[] proj = {Telephony.Sms.ADDRESS, Telephony.Sms.BODY, Telephony.Sms.DATE};
+                  Cursor c = null;
+                  try {
+                      c = cr.query(uri, proj, Telephony.Sms.DATE + " > ?", new String[]{String.valueOf(since)}, Telephony.Sms.DATE + " ASC");
+                      if (c != null) {
+                          while (c.moveToNext()) out.add(new Sms(c.getString(0), c.getString(1), c.getLong(2)));
+                      }
+                  } finally {
+                      if (c != null) c.close();
+                  }
+                  return out;
+              }
+
+              public static String subject(Sms s) {
+                  return "Fatura SMS - " + s.from;
+              }
+
+              public static String body(Sms s) {
+                  String d = new SimpleDateFormat("dd.MM.yyyy HH:mm", new Locale("tr")).format(new Date(s.date));
+                  return "Bu mail telefondaki bir SMS'ten otomatik iletildi (Fatura SMS uygulaması).\n\n"
+                          + "Gönderen: " + s.from + "\n"
+                          + "SMS tarihi: " + d + "\n\n"
+                          + s.body + "\n";
+              }
+
+              static String shorten(String s) {
+                  s = s.replace('\n', ' ');
+                  return s.length() > 70 ? s.substring(0, 70) + "…" : s;
+              }
+          }
+          FATURA_EOF
+          mkdir -p 'app/src/main/java/com/altintas/faturasms'
+          cat > 'app/src/main/java/com/altintas/faturasms/InstallReceiver.java' <<'FATURA_EOF'
+          package com.altintas.faturasms;
+
+          import android.content.BroadcastReceiver;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.content.pm.PackageInstaller;
+          import android.widget.Toast;
+
+          /** Kurulum oturumunun sonucunu alır; kullanıcı onayı gerekiyorsa sistemin kurulum ekranını açar. */
+          public class InstallReceiver extends BroadcastReceiver {
+              @Override
+              public void onReceive(Context context, Intent intent) {
+                  int status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE);
+                  if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
+                      Intent confirm = intent.getParcelableExtra(Intent.EXTRA_INTENT);
+                      if (confirm != null) {
+                          confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                          context.startActivity(confirm);
+                      }
+                  } else if (status == PackageInstaller.STATUS_SUCCESS) {
+                      new Store(context).log("Uygulama güncellendi");
+                  } else {
+                      String msg = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE);
+                      new Store(context).log("Güncelleme kurulamadı: " + (msg == null ? status : msg));
+                      Toast.makeText(context, "Güncelleme kurulamadı", Toast.LENGTH_LONG).show();
+                  }
+              }
+          }
+          FATURA_EOF
+          mkdir -p 'app/src/main/java/com/altintas/faturasms'
+          cat > 'app/src/main/java/com/altintas/faturasms/MainActivity.java' <<'FATURA_EOF'
+          package com.altintas.faturasms;
+
+          import android.Manifest;
+          import android.app.Activity;
+          import android.content.Intent;
+          import android.content.pm.PackageManager;
+          import android.graphics.Color;
+          import android.graphics.Typeface;
+          import android.net.Uri;
+          import android.os.Build;
+          import android.os.Bundle;
+          import android.os.PowerManager;
+          import android.provider.Settings;
+          import android.text.InputType;
+          import android.util.TypedValue;
+          import android.view.View;
+          import android.widget.Button;
+          import android.widget.EditText;
+          import android.widget.LinearLayout;
+          import android.widget.ScrollView;
+          import android.widget.TextView;
+
+          import java.util.ArrayList;
+          import java.util.List;
+
+          public class MainActivity extends Activity {
+              private Store store;
+              private EditText email, pass;
+              private TextView status, log;
+              private Button scanBtn, testBtn, updBtn;
+              private TextView updText;
+              private Updater.Release pending;
+              private boolean checkedUpdate;
+
+              @Override
+              protected void onCreate(Bundle b) {
+                  super.onCreate(b);
+                  store = new Store(this);
+                  setTitle("Fatura SMS");
+
+                  ScrollView sv = new ScrollView(this);
+                  LinearLayout root = new LinearLayout(this);
+                  root.setOrientation(LinearLayout.VERTICAL);
+                  int p = dp(18);
+                  root.setPadding(p, p, p, p);
+                  sv.addView(root);
+
+                  root.addView(text("Fatura SMS", 22, true));
+                  root.addView(text("CK Boğaziçi, İSKİ, İGDAŞ gibi kurumlardan gelen fatura SMS'lerini Gmail'ine iletir. "
+                          + "Fatura Takip uygulamasındaki \"Gmail'den yenile\" butonu da bunları otomatik okur. "
+                          + "Doğrulama kodu, banka şifresi gibi mesajlar asla iletilmez.", 14, false));
+
+                  root.addView(label("Gmail adresi"));
+                  email = new EditText(this);
+                  email.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
+                  email.setText(store.email());
+                  email.setHint("ornek@gmail.com");
+                  root.addView(email);
+
+                  root.addView(label("Gmail uygulama şifresi (16 haneli)"));
+                  pass = new EditText(this);
+                  pass.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+                  pass.setHint(store.pass().isEmpty() ? "abcd efgh ijkl mnop" : "Kayıtlı (değiştirmek için yaz)");
+                  root.addView(pass);
+                  root.addView(text("Normal Gmail şifren değil. myaccount.google.com/apppasswords adresinden alınır.", 12, false));
+
+                  testBtn = button("Kaydet ve test maili gönder");
+                  testBtn.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { saveAndTest(); } });
+                  root.addView(testBtn);
+
+                  scanBtn = button("Eski fatura SMS'lerini gönder (son 120 gün)");
+                  scanBtn.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { scan(); } });
+                  root.addView(scanBtn);
+
+                  Button bat = button("Arka planda çalışmasına izin ver (pil)");
+                  bat.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { askBattery(); } });
+                  root.addView(bat);
+
+                  status = text("", 15, true);
+                  status.setPadding(0, dp(14), 0, dp(6));
+                  root.addView(status);
+
+                  root.addView(label("Güncelleme"));
+                  updText = text("Sürüm " + Updater.installedName(this), 13, false);
+                  root.addView(updText);
+                  updBtn = button("Güncellemeleri kontrol et");
+                  updBtn.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { onUpdateClick(); } });
+                  root.addView(updBtn);
+
+                  root.addView(label("Son işlemler"));
+                  log = text("", 12, false);
+                  log.setTypeface(Typeface.MONOSPACE);
+                  root.addView(log);
+
+                  setContentView(sv);
+                  askSmsPermission();
+                  refresh();
+              }
+
+              @Override
+              protected void onResume() {
+                  super.onResume();
+                  refresh();
+                  // Bekleyen kuyruk varsa tekrar dene
+                  if (store.configured() && !store.queue().isEmpty()) runForward(new ArrayList<Sms>(), "Bekleyen SMS'ler gönderiliyor…");
+                  if (!checkedUpdate) { checkedUpdate = true; checkUpdate(false); }
+              }
+
+              /* ---- güncelleme ---- */
+              private void onUpdateClick() {
+                  if (pending != null) installUpdate(); else checkUpdate(true);
+              }
+
+              private void checkUpdate(final boolean manual) {
+                  updBtn.setEnabled(false);
+                  if (manual) updText.setText("Kontrol ediliyor…");
+                  new Thread(new Runnable() {
+                      public void run() {
+                          String msg;
+                          Updater.Release r = null;
+                          try {
+                              r = Updater.latest();
+                              long cur = Updater.installedVersion(MainActivity.this);
+                              if (r != null && r.versionCode > cur) msg = "🆕 Yeni sürüm var (" + r.versionCode + ")." + (r.notes == null || r.notes.isEmpty() ? "" : "\n" + r.notes);
+                              else { r = null; msg = "✅ En son sürümü kullanıyorsun (" + Updater.installedName(MainActivity.this) + ")."; }
+                          } catch (Exception e) {
+                              msg = manual ? "Güncelleme kontrol edilemedi: " + e.getMessage() : "Sürüm " + Updater.installedName(MainActivity.this);
+                          }
+                          final String m = msg;
+                          final Updater.Release rr = r;
+                          runOnUiThread(new Runnable() {
+                              public void run() {
+                                  pending = rr;
+                                  updText.setText(m);
+                                  updBtn.setText(rr != null ? "Yeni sürümü indir ve kur" : "Güncellemeleri kontrol et");
+                                  updBtn.setEnabled(true);
+                              }
+                          });
+                      }
+                  }).start();
+              }
+
+              private void installUpdate() {
+                  if (!getPackageManager().canRequestPackageInstalls()) {
+                      updText.setText("Önce açılan ekranda \"Bu kaynaktan izin ver\"i aç, sonra geri dönüp tekrar bas.");
+                      startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName())));
+                      return;
+                  }
+                  final String url = pending.apkUrl;
+                  updBtn.setEnabled(false);
+                  updText.setText("Yeni sürüm indiriliyor…");
+                  new Thread(new Runnable() {
+                      public void run() {
+                          String m;
+                          try {
+                              Updater.downloadAndInstall(MainActivity.this, url);
+                              m = "Kurulum ekranı açılıyor, \"Güncelle\"ye bas.";
+                          } catch (Exception e) {
+                              m = "İndirilemedi: " + e.getMessage();
+                          }
+                          final String mm = m;
+                          runOnUiThread(new Runnable() { public void run() { updText.setText(mm); updBtn.setEnabled(true); } });
+                      }
+                  }).start();
+              }
+
+              private void refresh() {
+                  boolean perm = hasSms();
+                  String s;
+                  if (!perm) s = "⚠️ SMS izni verilmedi. Uygulama çalışamaz.";
+                  else if (!store.configured()) s = "⚠️ Gmail uygulama şifresini gir ve test et.";
+                  else s = "✅ Hazır. Yeni fatura SMS'leri otomatik iletilecek. Toplam iletilen: " + store.sentCount()
+                          + (store.queue().isEmpty() ? "" : " · Bekleyen: " + store.queue().size());
+                  status.setText(s);
+                  log.setText(store.logText());
+              }
+
+              private void saveAndTest() {
+                  String e = email.getText().toString().trim();
+                  String pw = pass.getText().toString().replace(" ", "").trim();
+                  if (e.isEmpty() || !e.contains("@")) { status.setText("Geçerli bir Gmail adresi yaz."); return; }
+                  if (pw.isEmpty()) pw = store.pass();
+                  if (pw.length() != 16) { status.setText("Uygulama şifresi 16 harf olmalı (boşluklar hariç)."); return; }
+                  store.saveCreds(e, pw);
+                  pass.setText("");
+                  pass.setHint("Kayıtlı (değiştirmek için yaz)");
+                  setBusy(true, "Test maili gönderiliyor…");
+                  final String to = e, pwd = pw;
+                  new Thread(new Runnable() {
+                      public void run() {
+                          String msg;
+                          try {
+                              Smtp.send(Forwarder.HOST, Forwarder.PORT, true, to, pwd, to, "Fatura SMS test",
+                                      "Fatura SMS uygulaması Gmail'e bağlandı. Bu maili silebilirsin.");
+                              store.log("Test maili gönderildi");
+                              msg = "✅ Test maili gönderildi. Şimdi eski SMS'leri gönderebilirsin.";
+                          } catch (Smtp.SmtpException ex) {
+                              msg = (ex.code == 535 || ex.code == 534)
+                                      ? "❌ Gmail şifreyi kabul etmedi. 16 haneli uygulama şifresini kontrol et (2 adımlı doğrulama açık olmalı)."
+                                      : "❌ Gmail hatası: " + ex.code;
+                              store.log(msg);
+                          } catch (Exception ex) {
+                              msg = "❌ Gmail'e ulaşılamadı. İnternet bağlantını kontrol et.";
+                              store.log(msg);
+                          }
+                          final String m = msg;
+                          runOnUiThread(new Runnable() { public void run() { setBusy(false, null); refresh(); status.setText(m); } });
+                      }
+                  }).start();
+              }
+
+              private void scan() {
+                  if (!hasSms()) { askSmsPermission(); return; }
+                  if (!store.configured()) { status.setText("Önce Gmail uygulama şifresini girip test et."); return; }
+                  List<Sms> inbox;
+                  try {
+                      inbox = Forwarder.readInbox(this, 120);
+                  } catch (Exception e) {
+                      status.setText("SMS'ler okunamadı: " + e.getMessage());
+                      return;
+                  }
+                  runForward(inbox, inbox.size() + " SMS tarandı, faturalar gönderiliyor…");
+              }
+
+              private void runForward(final List<Sms> list, String busyMsg) {
+                  setBusy(true, busyMsg);
+                  new Thread(new Runnable() {
+                      public void run() {
+                          final Forwarder.Result r = Forwarder.process(MainActivity.this, list);
+                          runOnUiThread(new Runnable() {
+                              public void run() {
+                                  setBusy(false, null);
+                                  refresh();
+                                  String m;
+                                  if (r.found == 0) m = "Fatura SMS'i bulunamadı.";
+                                  else m = r.sent + " fatura SMS'i gönderildi"
+                                          + (r.skipped > 0 ? ", " + r.skipped + " zaten gönderilmişti" : "")
+                                          + (r.failed > 0 ? ", " + r.failed + " gönderilemedi (" + r.error + ")" : "") + ".";
+                                  status.setText(m);
+                              }
+                          });
+                      }
+                  }).start();
+              }
+
+              private void setBusy(boolean busy, String msg) {
+                  scanBtn.setEnabled(!busy);
+                  testBtn.setEnabled(!busy);
+                  if (msg != null) status.setText(msg);
+              }
+
+              private boolean hasSms() {
+                  return checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
+                          && checkSelfPermission(Manifest.permission.RECEIVE_SMS) == PackageManager.PERMISSION_GRANTED;
+              }
+
+              private void askSmsPermission() {
+                  if (!hasSms()) requestPermissions(new String[]{Manifest.permission.READ_SMS, Manifest.permission.RECEIVE_SMS}, 1);
+              }
+
+              @Override
+              public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+                  refresh();
+              }
+
+              private void askBattery() {
+                  try {
+                      PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+                      if (Build.VERSION.SDK_INT >= 23 && pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
+                          Intent i = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                          i.setData(Uri.parse("package:" + getPackageName()));
+                          startActivity(i);
+                      } else {
+                          status.setText("✅ Pil kısıtlaması zaten kapalı.");
+                      }
+                  } catch (Exception e) {
+                      startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+                  }
+              }
+
+              /* ---- küçük arayüz yardımcıları ---- */
+              private int dp(int v) { return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, getResources().getDisplayMetrics()); }
+
+              private TextView text(String s, int sp, boolean bold) {
+                  TextView t = new TextView(this);
+                  t.setText(s);
+                  t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
+                  if (bold) t.setTypeface(Typeface.DEFAULT_BOLD);
+                  t.setPadding(0, dp(4), 0, dp(4));
+                  return t;
+              }
+
+              private TextView label(String s) {
+                  TextView t = text(s, 13, true);
+                  t.setTextColor(Color.GRAY);
+                  t.setPadding(0, dp(14), 0, 0);
+                  return t;
+              }
+
+              private Button button(String s) {
+                  Button bt = new Button(this);
+                  bt.setText(s);
+                  bt.setAllCaps(false);
+                  LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                  lp.topMargin = dp(8);
+                  bt.setLayoutParams(lp);
+                  return bt;
+              }
+          }
+          FATURA_EOF
+          mkdir -p 'app/src/main/java/com/altintas/faturasms'
+          cat > 'app/src/main/java/com/altintas/faturasms/Sms.java' <<'FATURA_EOF'
+          package com.altintas.faturasms;
+
+          /** Tek bir SMS. */
+          public final class Sms {
+              public final String from;
+              public final String body;
+              public final long date;
+
+              public Sms(String from, String body, long date) {
+                  this.from = from == null ? "" : from;
+                  this.body = body == null ? "" : body;
+                  this.date = date;
+              }
+
+              /** Aynı SMS'i iki kez göndermemek için anahtar. */
+              public String key() { return from + "|" + (date / 60000L) + "|" + body.trim().hashCode(); }
+          }
+          FATURA_EOF
+          mkdir -p 'app/src/main/java/com/altintas/faturasms'
+          cat > 'app/src/main/java/com/altintas/faturasms/SmsReceiver.java' <<'FATURA_EOF'
+          package com.altintas.faturasms;
+
+          import android.content.BroadcastReceiver;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.provider.Telephony;
+          import android.telephony.SmsMessage;
+
+          import java.util.ArrayList;
+          import java.util.LinkedHashMap;
+          import java.util.List;
+          import java.util.Map;
+
+          /** Yeni gelen SMS'leri yakalar, fatura ise Gmail'e iletir. */
+          public class SmsReceiver extends BroadcastReceiver {
+              @Override
+              public void onReceive(final Context context, Intent intent) {
+                  if (!Telephony.Sms.Intents.SMS_RECEIVED_ACTION.equals(intent.getAction())) return;
+                  SmsMessage[] parts;
+                  try {
+                      parts = Telephony.Sms.Intents.getMessagesFromIntent(intent);
+                  } catch (Exception e) {
+                      return;
+                  }
+                  if (parts == null || parts.length == 0) return;
+
+                  // Çok parçalı SMS'leri birleştir
+                  Map<String, StringBuilder> bodies = new LinkedHashMap<>();
+                  Map<String, Long> dates = new LinkedHashMap<>();
+                  for (SmsMessage m : parts) {
+                      if (m == null) continue;
+                      String from = m.getDisplayOriginatingAddress();
+                      if (from == null) from = "";
+                      StringBuilder sb = bodies.get(from);
+                      if (sb == null) { sb = new StringBuilder(); bodies.put(from, sb); dates.put(from, m.getTimestampMillis()); }
+                      String b = m.getDisplayMessageBody();
+                      if (b != null) sb.append(b);
+                  }
+                  final List<Sms> list = new ArrayList<>();
+                  for (Map.Entry<String, StringBuilder> e : bodies.entrySet()) {
+                      Long d = dates.get(e.getKey());
+                      list.add(new Sms(e.getKey(), e.getValue().toString(), d == null ? System.currentTimeMillis() : d));
+                  }
+
+                  final PendingResult pr = goAsync();
+                  new Thread(new Runnable() {
+                      @Override
+                      public void run() {
+                          try {
+                              Forwarder.process(context, list);
+                          } catch (Throwable ignored) {
+                          } finally {
+                              pr.finish();
+                          }
+                      }
+                  }).start();
+              }
+          }
+          FATURA_EOF
+          mkdir -p 'app/src/main/java/com/altintas/faturasms'
+          cat > 'app/src/main/java/com/altintas/faturasms/Smtp.java' <<'FATURA_EOF'
+          package com.altintas.faturasms;
+
+          import java.io.BufferedReader;
+          import java.io.IOException;
+          import java.io.InputStreamReader;
+          import java.io.OutputStream;
+          import java.net.InetSocketAddress;
+          import java.net.Socket;
+          import java.nio.charset.StandardCharsets;
+          import java.text.SimpleDateFormat;
+          import java.util.Date;
+          import java.util.Locale;
+          import javax.net.ssl.SSLSocket;
+          import javax.net.ssl.SSLSocketFactory;
+
+          /** Gmail'e (smtp.gmail.com:465, SSL) mail gönderen küçük SMTP istemcisi. Android'e bağımlı değil. */
+          public final class Smtp {
+              private Smtp() {}
+
+              public static class SmtpException extends IOException {
+                  public final int code;
+                  public SmtpException(int code, String msg) { super(msg); this.code = code; }
+              }
+
+              public static void send(String host, int port, boolean ssl, String user, String pass,
+                                      String to, String subject, String body) throws IOException {
+                  Socket s = ssl ? SSLSocketFactory.getDefault().createSocket() : new Socket();
+                  try {
+                      s.connect(new InetSocketAddress(host, port), 15000);
+                      s.setSoTimeout(30000);
+                      if (ssl) ((SSLSocket) s).startHandshake();
+                      BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream(), StandardCharsets.UTF_8));
+                      OutputStream out = s.getOutputStream();
+                      expect(in, 220);
+                      cmd(out, in, "EHLO faturasms.local", 250);
+                      if (user != null && !user.isEmpty()) {
+                          cmd(out, in, "AUTH LOGIN", 334);
+                          cmd(out, in, b64(user.getBytes(StandardCharsets.UTF_8)), 334);
+                          cmd(out, in, b64(pass.getBytes(StandardCharsets.UTF_8)), 235);
+                      }
+                      cmd(out, in, "MAIL FROM:<" + user + ">", 250);
+                      cmd(out, in, "RCPT TO:<" + to + ">", 250);
+                      cmd(out, in, "DATA", 354);
+                      write(out, buildMessage(user, to, subject, body) + "\r\n.\r\n");
+                      expect(in, 250);
+                      try { write(out, "QUIT\r\n"); } catch (IOException ignored) {}
+                  } finally {
+                      try { s.close(); } catch (IOException ignored) {}
+                  }
+              }
+
+              static String buildMessage(String from, String to, String subject, String body) {
+                  SimpleDateFormat df = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss Z", Locale.US);
+                  StringBuilder m = new StringBuilder();
+                  m.append("From: Fatura SMS <").append(from).append(">\r\n");
+                  m.append("To: <").append(to).append(">\r\n");
+                  m.append("Subject: =?UTF-8?B?").append(b64(subject.getBytes(StandardCharsets.UTF_8))).append("?=\r\n");
+                  m.append("Date: ").append(df.format(new Date())).append("\r\n");
+                  m.append("Message-ID: <").append(System.currentTimeMillis()).append('.')
+                          .append(Math.abs(body.hashCode())).append("@faturasms.local>\r\n");
+                  m.append("MIME-Version: 1.0\r\n");
+                  m.append("Content-Type: text/plain; charset=UTF-8\r\n");
+                  m.append("Content-Transfer-Encoding: base64\r\n\r\n");
+                  String enc = b64(body.getBytes(StandardCharsets.UTF_8));
+                  for (int i = 0; i < enc.length(); i += 76) {
+                      m.append(enc, i, Math.min(enc.length(), i + 76)).append("\r\n");
+                  }
+                  return m.toString().replaceAll("\r\n$", "");
+              }
+
+              private static void cmd(OutputStream out, BufferedReader in, String line, int code) throws IOException {
+                  write(out, line + "\r\n");
+                  expect(in, code);
+              }
+
+              private static void write(OutputStream out, String s) throws IOException {
+                  out.write(s.getBytes(StandardCharsets.UTF_8));
+                  out.flush();
+              }
+
+              private static String expect(BufferedReader in, int code) throws IOException {
+                  StringBuilder all = new StringBuilder();
+                  String line;
+                  do {
+                      line = in.readLine();
+                      if (line == null) throw new IOException("Sunucu bağlantıyı kapattı");
+                      all.append(line).append('\n');
+                  } while (line.length() > 3 && line.charAt(3) == '-');
+                  int c;
+                  try { c = Integer.parseInt(line.substring(0, 3)); } catch (Exception e) { throw new IOException("Geçersiz yanıt: " + line); }
+                  boolean ok = c == code || (code == 250 && c == 251);
+                  if (!ok) throw new SmtpException(c, all.toString().trim());
+                  return all.toString();
+              }
+
+              private static final char[] T = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".toCharArray();
+
+              static String b64(byte[] d) {
+                  StringBuilder sb = new StringBuilder((d.length + 2) / 3 * 4);
+                  for (int i = 0; i < d.length; i += 3) {
+                      int b0 = d[i] & 0xff, b1 = i + 1 < d.length ? d[i + 1] & 0xff : 0, b2 = i + 2 < d.length ? d[i + 2] & 0xff : 0;
+                      sb.append(T[b0 >> 2]).append(T[((b0 & 3) << 4) | (b1 >> 4)]);
+                      sb.append(i + 1 < d.length ? T[((b1 & 15) << 2) | (b2 >> 6)] : '=');
+                      sb.append(i + 2 < d.length ? T[b2 & 63] : '=');
+                  }
+                  return sb.toString();
+              }
+          }
+          FATURA_EOF
+          mkdir -p 'app/src/main/java/com/altintas/faturasms'
+          cat > 'app/src/main/java/com/altintas/faturasms/Store.java' <<'FATURA_EOF'
+          package com.altintas.faturasms;
+
+          import android.content.Context;
+          import android.content.SharedPreferences;
+
+          import org.json.JSONArray;
+          import org.json.JSONObject;
+
+          import java.text.SimpleDateFormat;
+          import java.util.ArrayList;
+          import java.util.Date;
+          import java.util.HashSet;
+          import java.util.List;
+          import java.util.Locale;
+          import java.util.Set;
+
+          /** Ayarlar, gönderilmiş SMS kayıtları, bekleyen kuyruk ve günlük. */
+          public final class Store {
+              private static final String P = "faturasms";
+              private final SharedPreferences sp;
+
+              public Store(Context c) { sp = c.getApplicationContext().getSharedPreferences(P, Context.MODE_PRIVATE); }
+
+              public String email() { return sp.getString("email", ""); }
+              public String pass() { return sp.getString("pass", ""); }
+              public void saveCreds(String email, String pass) {
+                  sp.edit().putString("email", email.trim()).putString("pass", pass.replace(" ", "").trim()).apply();
+              }
+              public boolean configured() { return !email().isEmpty() && !pass().isEmpty(); }
+
+              public synchronized boolean isSent(String key) { return sp.getStringSet("sent", new HashSet<String>()).contains(key); }
+              public synchronized void markSent(String key) {
+                  Set<String> s = new HashSet<>(sp.getStringSet("sent", new HashSet<String>()));
+                  s.add(key);
+                  sp.edit().putStringSet("sent", s).apply();
+              }
+              public synchronized int sentCount() { return sp.getStringSet("sent", new HashSet<String>()).size(); }
+
+              /* ---- bekleyen (gönderilemeyen) SMS kuyruğu ---- */
+              public synchronized List<Sms> queue() {
+                  List<Sms> out = new ArrayList<>();
+                  try {
+                      JSONArray a = new JSONArray(sp.getString("queue", "[]"));
+                      for (int i = 0; i < a.length(); i++) {
+                          JSONObject o = a.getJSONObject(i);
+                          out.add(new Sms(o.getString("from"), o.getString("body"), o.getLong("date")));
+                      }
+                  } catch (Exception ignored) {}
+                  return out;
+              }
+              public synchronized void setQueue(List<Sms> q) {
+                  JSONArray a = new JSONArray();
+                  try {
+                      for (Sms s : q) {
+                          JSONObject o = new JSONObject();
+                          o.put("from", s.from); o.put("body", s.body); o.put("date", s.date);
+                          a.put(o);
+                      }
+                  } catch (Exception ignored) {}
+                  sp.edit().putString("queue", a.toString()).apply();
+              }
+
+              /* ---- günlük ---- */
+              public synchronized void log(String line) {
+                  try {
+                      JSONArray a = new JSONArray(sp.getString("log", "[]"));
+                      JSONArray b = new JSONArray();
+                      String ts = new SimpleDateFormat("dd.MM HH:mm", new Locale("tr")).format(new Date());
+                      b.put(ts + "  " + line);
+                      for (int i = 0; i < a.length() && i < 60; i++) b.put(a.getString(i));
+                      sp.edit().putString("log", b.toString()).apply();
+                  } catch (Exception ignored) {}
+              }
+              public synchronized String logText() {
+                  StringBuilder sb = new StringBuilder();
+                  try {
+                      JSONArray a = new JSONArray(sp.getString("log", "[]"));
+                      for (int i = 0; i < a.length(); i++) sb.append(a.getString(i)).append('\n');
+                  } catch (Exception ignored) {}
+                  return sb.toString();
+              }
+          }
+          FATURA_EOF
+          mkdir -p 'app/src/main/java/com/altintas/faturasms'
+          cat > 'app/src/main/java/com/altintas/faturasms/Updater.java' <<'FATURA_EOF'
+          package com.altintas.faturasms;
+
+          import android.app.PendingIntent;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.content.pm.PackageInfo;
+          import android.content.pm.PackageInstaller;
+          import android.os.Build;
+
+          import org.json.JSONArray;
+          import org.json.JSONObject;
+
+          import java.io.ByteArrayOutputStream;
+          import java.io.IOException;
+          import java.io.InputStream;
+          import java.io.OutputStream;
+          import java.net.HttpURLConnection;
+          import java.net.URL;
+          import java.util.regex.Matcher;
+          import java.util.regex.Pattern;
+
+          /** GitHub'daki son sürümü kontrol eder, indirir ve kurar. Ağ işlemleri ana iş parçacığında çağrılmamalı. */
+          public final class Updater {
+              private Updater() {}
+
+              public static final String REPO = "UROG61/fatura-sms";
+              private static final String API = "https://api.github.com/repos/" + REPO + "/releases/tags/latest";
+
+              public static class Release {
+                  public long versionCode;
+                  public String apkUrl;
+                  public String notes;
+              }
+
+              public static long installedVersion(Context c) {
+                  try {
+                      PackageInfo pi = c.getPackageManager().getPackageInfo(c.getPackageName(), 0);
+                      return Build.VERSION.SDK_INT >= 28 ? pi.getLongVersionCode() : pi.versionCode;
+                  } catch (Exception e) {
+                      return 0;
+                  }
+              }
+
+              public static String installedName(Context c) {
+                  try {
+                      return c.getPackageManager().getPackageInfo(c.getPackageName(), 0).versionName;
+                  } catch (Exception e) {
+                      return "?";
+                  }
+              }
+
+              /** Son sürüm bilgisini getirir; bulunamazsa null. */
+              public static Release latest() throws IOException {
+                  HttpURLConnection con = open(API);
+                  con.setRequestProperty("Accept", "application/vnd.github+json");
+                  int code = con.getResponseCode();
+                  if (code == 404) return null;
+                  if (code != 200) throw new IOException("GitHub yanıtı: " + code);
+                  String body = new String(readAll(con.getInputStream()), "UTF-8");
+                  con.disconnect();
+                  try {
+                      JSONObject o = new JSONObject(body);
+                      Release r = new Release();
+                      String text = o.optString("body", "") + " " + o.optString("name", "");
+                      Matcher m = Pattern.compile("versionCode=(\\d+)").matcher(text);
+                      if (!m.find()) return null;
+                      r.versionCode = Long.parseLong(m.group(1));
+                      JSONArray assets = o.optJSONArray("assets");
+                      if (assets != null) {
+                          for (int i = 0; i < assets.length(); i++) {
+                              JSONObject a = assets.getJSONObject(i);
+                              if (a.optString("name").endsWith(".apk")) r.apkUrl = a.optString("browser_download_url");
+                          }
+                      }
+                      if (r.apkUrl == null) return null;
+                      int nl = o.optString("body", "").indexOf('\n');
+                      r.notes = nl > 0 ? o.optString("body").substring(nl + 1).trim() : "";
+                      return r;
+                  } catch (Exception e) {
+                      throw new IOException("Sürüm bilgisi okunamadı");
+                  }
+              }
+
+              /** APK'yı indirip sistem kurulum ekranını başlatır. */
+              public static void downloadAndInstall(Context ctx, String url) throws IOException {
+                  Context c = ctx.getApplicationContext();
+                  PackageInstaller pi = c.getPackageManager().getPackageInstaller();
+                  PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
+                  params.setAppPackageName(c.getPackageName());
+                  int sessionId = pi.createSession(params);
+                  PackageInstaller.Session session = pi.openSession(sessionId);
+                  try {
+                      HttpURLConnection con = open(url);
+                      int code = con.getResponseCode();
+                      if (code != 200) throw new IOException("İndirme hatası: " + code);
+                      long len = con.getContentLengthLong();
+                      InputStream in = con.getInputStream();
+                      OutputStream out = session.openWrite("FaturaSMS.apk", 0, len > 0 ? len : -1);
+                      byte[] buf = new byte[65536];
+                      int n;
+                      while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                      session.fsync(out);
+                      out.close();
+                      in.close();
+                      con.disconnect();
+
+                      Intent i = new Intent(c, InstallReceiver.class);
+                      int flags = PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0);
+                      PendingIntent p = PendingIntent.getBroadcast(c, sessionId, i, flags);
+                      session.commit(p.getIntentSender());
+                  } catch (IOException e) {
+                      session.abandon();
+                      throw e;
+                  } finally {
+                      session.close();
+                  }
+              }
+
+              private static HttpURLConnection open(String url) throws IOException {
+                  // GitHub indirme linkleri başka bir alan adına yönlendirir; yönlendirmeleri elle takip et
+                  for (int hop = 0; hop < 6; hop++) {
+                      HttpURLConnection con = (HttpURLConnection) new URL(url).openConnection();
+                      con.setInstanceFollowRedirects(false);
+                      con.setConnectTimeout(15000);
+                      con.setReadTimeout(60000);
+                      con.setRequestProperty("User-Agent", "FaturaSMS-Android");
+                      int code = con.getResponseCode();
+                      if (code >= 300 && code < 400) {
+                          String loc = con.getHeaderField("Location");
+                          con.disconnect();
+                          if (loc == null) throw new IOException("Yönlendirme hatası");
+                          url = new URL(new URL(url), loc).toString();
+                          continue;
+                      }
+                      return con;
+                  }
+                  throw new IOException("Çok fazla yönlendirme");
+              }
+
+              private static byte[] readAll(InputStream in) throws IOException {
+                  ByteArrayOutputStream b = new ByteArrayOutputStream();
+                  byte[] buf = new byte[8192];
+                  int n;
+                  while ((n = in.read(buf)) > 0) b.write(buf, 0, n);
+                  in.close();
+                  return b.toByteArray();
+              }
+          }
+          FATURA_EOF
+          mkdir -p 'app/src/main/res/drawable'
+          cat > 'app/src/main/res/drawable/ic_fg.xml' <<'FATURA_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp" android:height="108dp"
+              android:viewportWidth="108" android:viewportHeight="108">
+              <!-- fiş -->
+              <path android:fillColor="#FFFFFF"
+                  android:pathData="M38,30 L70,30 L70,78 L66,74 L62,78 L58,74 L54,78 L50,74 L46,78 L42,74 L38,78 Z" />
+              <path android:fillColor="#2563EB" android:pathData="M44,40 L64,40 L64,44 L44,44 Z" />
+              <path android:fillColor="#2563EB" android:pathData="M44,49 L64,49 L64,53 L44,53 Z" />
+              <path android:fillColor="#2563EB" android:pathData="M44,58 L56,58 L56,62 L44,62 Z" />
+          </vector>
+          FATURA_EOF
+          mkdir -p 'app/src/main/res/mipmap-anydpi-v26'
+          cat > 'app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml' <<'FATURA_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/ic_bg" />
+              <foreground android:drawable="@drawable/ic_fg" />
+          </adaptive-icon>
+          FATURA_EOF
+          mkdir -p 'app/src/main/res/values'
+          cat > 'app/src/main/res/values/colors.xml' <<'FATURA_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="ic_bg">#2563EB</color>
+          </resources>
+          FATURA_EOF
+          cat > 'build.gradle' <<'FATURA_EOF'
+          plugins {
+              id 'com.android.application' version '8.5.2' apply false
+          }
+          FATURA_EOF
+          cat > 'gradle.properties' <<'FATURA_EOF'
+          org.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8
+          android.nonTransitiveRClass=true
+          FATURA_EOF
+          cat > 'settings.gradle' <<'FATURA_EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "FaturaSMS"
+          include ':app'
+          FATURA_EOF
+
+      - name: Imza anahtarini yerlestir (GitHub Secrets)
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then echo '::error::KEYSTORE_B64 secret eksik. Settings > Secrets and variables > Actions bolumune ekleyin.'; exit 1; fi
+          echo "$KEYSTORE_B64" | tr -d ' \n\r' | base64 -d > app/release.keystore
+
+      - name: APK derle
+        run: gradle assembleRelease --no-daemon --stacktrace
+
+      - name: APK adlandir ve surum notu
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk FaturaSMS.apk
+          VC=$((100 + GITHUB_RUN_NUMBER))
+          printf 'versionCode=%s\nGuncelleme\n' "$VC" > notes.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FaturaSMS
+          path: FaturaSMS.apk
+
+      - name: Surum yayinla
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Fatura SMS (son surum)
+          body_path: notes.txt
+          files: FaturaSMS.apk
+          make_latest: true
