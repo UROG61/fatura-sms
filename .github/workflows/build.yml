@@ -63,10 +63,21 @@ jobs:
                   encoding 'UTF-8'
               }
 
+              packaging {
+                  resources {
+                      pickFirsts += ['META-INF/LICENSE.md', 'META-INF/NOTICE.md', 'META-INF/LICENSE', 'META-INF/NOTICE', 'META-INF/LICENSE.txt', 'META-INF/NOTICE.txt']
+                  }
+              }
+
               lint {
                   checkReleaseBuilds false
                   abortOnError false
               }
+          }
+
+          dependencies {
+              implementation 'com.sun.mail:android-mail:1.6.7'
+              implementation 'com.sun.mail:android-activation:1.6.7'
           }
           FATURA_EOF
           mkdir -p 'app/src/main'
@@ -80,6 +91,7 @@ jobs:
               <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
               <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
               <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
               <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
@@ -90,17 +102,25 @@ jobs:
                   android:theme="@android:style/Theme.Material.Light.DarkActionBar">
 
                   <activity
-                      android:name=".MainActivity"
-                      android:exported="true">
+                      android:name=".WebActivity"
+                      android:exported="true"
+                      android:launchMode="singleTask"
+                      android:configChanges="orientation|screenSize|keyboardHidden"
+                      android:theme="@android:style/Theme.Material.Light.NoActionBar">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
                           <category android:name="android.intent.category.LAUNCHER" />
                       </intent-filter>
+                      <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
+                  </activity>
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true">
                       <intent-filter>
                           <action android:name="com.altintas.faturasms.SETTINGS" />
                           <category android:name="android.intent.category.DEFAULT" />
                       </intent-filter>
-                      <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
                   </activity>
 
                   <receiver
@@ -124,6 +144,287 @@ jobs:
                       android:exported="false" />
               </application>
           </manifest>
+          FATURA_EOF
+          mkdir -p 'app/src/main/assets'
+          cat > 'app/src/main/assets/index.html' <<'FATURA_EOF'
+          <!DOCTYPE html>
+          <html lang="tr">
+          <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+          <title>Fatura Takip</title>
+          <style>
+          :root{--bg:#f6f7f9;--card:#fff;--ink:#16181d;--mute:#6b7280;--line:#e5e7eb;--acc:#2563eb;--ok:#16a34a;--warn:#d97706;--bad:#dc2626;--el:#eab308;--su:#0ea5e9;--gaz:#f97316;--dg:#8b5cf6}
+          @media (prefers-color-scheme:dark){:root{--bg:#0f1115;--card:#181b21;--ink:#eceef2;--mute:#9aa1ad;--line:#2a2e36;--acc:#60a5fa}}
+          *{box-sizing:border-box}
+          body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+          .wrap{max-width:720px;margin:0 auto;padding:14px 14px 90px}
+          header{display:flex;align-items:center;justify-content:space-between;margin:4px 0 12px}
+          h1{font-size:20px;margin:0}
+          .save{font-size:12px;color:var(--mute)}
+          .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+          .stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px}
+          .stat b{display:block;font-size:17px}
+          .stat span{font-size:12px;color:var(--mute)}
+          .stat.bad b{color:var(--bad)}.stat.warn b{color:var(--warn)}
+          .tabs{display:flex;gap:6px;margin-bottom:12px;position:sticky;top:0;background:var(--bg);padding:6px 0;z-index:5}
+          .tabs button{flex:1}
+          button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;padding:9px 12px;cursor:pointer}
+          button.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+          button.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+          button.sm{padding:6px 10px;font-size:13px}
+          button.danger{color:var(--bad)}
+          button:disabled{opacity:.5}
+          .chips{display:flex;gap:6px;overflow-x:auto;margin-bottom:10px;padding-bottom:2px}
+          .chips button{white-space:nowrap;padding:6px 11px;font-size:13px;border-radius:99px}
+          .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px}
+          .bill{display:flex;gap:10px;align-items:flex-start}
+          .ic{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;font-size:19px;flex:none}
+          .t-elektrik{background:color-mix(in srgb,var(--el) 20%,transparent)}
+          .t-su{background:color-mix(in srgb,var(--su) 20%,transparent)}
+          .t-dogalgaz{background:color-mix(in srgb,var(--gaz) 20%,transparent)}
+          .t-diger{background:color-mix(in srgb,var(--dg) 20%,transparent)}
+          .grow{flex:1;min-width:0}
+          .row{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+          .amt{font-weight:700;font-size:17px;white-space:nowrap}
+          .sub{font-size:13px;color:var(--mute)}
+          .badge{font-size:12px;font-weight:600;padding:2px 8px;border-radius:99px;white-space:nowrap}
+          .b-paid{background:color-mix(in srgb,var(--ok) 15%,transparent);color:var(--ok)}
+          .b-over{background:color-mix(in srgb,var(--bad) 15%,transparent);color:var(--bad)}
+          .b-soon{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+          .b-open{background:color-mix(in srgb,var(--acc) 14%,transparent);color:var(--acc)}
+          .acts{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+          textarea,input,select{font:inherit;width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)}
+          textarea{min-height:130px;resize:vertical}
+          label{display:block;font-size:12px;color:var(--mute);margin:8px 0 3px}
+          .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
+          .muted{color:var(--mute);font-size:13px}
+          .empty{text-align:center;color:var(--mute);padding:30px 10px}
+          .err{color:var(--bad);font-size:13px;margin-top:6px}
+          .note{font-size:13px;background:color-mix(in srgb,var(--acc) 8%,transparent);border-radius:10px;padding:10px;margin-top:10px}
+          .sheet{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;justify-content:center;z-index:20}
+          .sheet .card{width:100%;max-width:720px;max-height:92vh;overflow:auto;border-radius:16px 16px 0 0;margin:0;padding-bottom:24px}
+          .bars{display:flex;align-items:flex-end;gap:8px;height:150px;margin-top:10px}
+          .bar{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%}
+          .stack{width:100%;display:flex;flex-direction:column-reverse;border-radius:6px 6px 0 0;overflow:hidden}
+          .bar small{font-size:11px;color:var(--mute);margin-top:4px}
+          .legend{display:flex;gap:12px;font-size:12px;color:var(--mute);margin-top:8px;flex-wrap:wrap}
+          .dot{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:4px}
+          table{width:100%;border-collapse:collapse;font-size:13px}
+          td,th{padding:7px 4px;border-bottom:1px solid var(--line);text-align:left}
+          th{color:var(--mute);font-weight:500}
+          td.r,th.r{text-align:right}
+          .spin{display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:s .8s linear infinite;vertical-align:-2px;margin-right:6px}
+          @keyframes s{to{transform:rotate(360deg)}}
+
+          :root{--teal:#2bb3cf;--teal2:#1b9fbd;--navy:#0b2a6b;--track:#e3e8f0;--pill-bad:#fbd5dd;--pill-ok:#d5f3e0}
+          @media (prefers-color-scheme:dark){:root{--navy:#cfe0ff;--track:#2a3140;--pill-bad:#4a1f2a;--pill-ok:#173a26}}
+          .hero{margin:-14px -14px 0;padding:18px 18px 46px;background:linear-gradient(135deg,#d9f2fb,#eef9fd 60%,#cdeef8);color:#1f2937}
+          @media (prefers-color-scheme:dark){.hero{background:linear-gradient(135deg,#0f2a36,#132430);color:#e5e7eb}}
+          .hero h2{margin:0;font-size:22px;font-weight:500}
+          .hero .sub{color:inherit;opacity:.75}
+          .hs{display:flex;align-items:flex-start;overflow-x:auto;scroll-snap-type:x mandatory;scroll-padding:0 14px;gap:12px;margin:-30px -14px 0;padding:0 14px 6px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+          .hs::-webkit-scrollbar{display:none}
+          .hc{flex:0 0 100%;min-width:0;scroll-snap-align:start;background:var(--card);border-radius:24px;padding:16px;box-shadow:0 6px 24px rgba(15,40,80,.10);border:1px solid var(--line)}
+          .hsel{position:relative;border:1px solid var(--line);border-radius:16px;padding:10px 40px 10px 14px;margin-bottom:14px}
+          .hsel b{font-size:17px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+          .hsel select{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer}
+          .hsel:after{content:"⌄";position:absolute;right:16px;top:50%;transform:translateY(-62%);font-size:22px;color:var(--mute)}
+          .hgrid{display:grid;grid-template-columns:1fr auto;gap:6px 12px;align-items:start}
+          .hamt{font-size:30px;font-weight:800;color:var(--navy);letter-spacing:-.5px;margin:4px 0 8px;white-space:nowrap}
+          .pill{display:inline-flex;align-items:center;gap:6px;font-weight:600;font-size:14px;padding:5px 14px;border-radius:99px}
+          .pill.bad{background:var(--pill-bad);color:#d10f3a}.pill.ok{background:var(--pill-ok);color:var(--ok)}.pill.mid{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+          .chip2{background:var(--bg);border-radius:12px;padding:5px 10px;font-size:13px;font-weight:600;white-space:nowrap}
+          .hr{text-align:right}.hr small{display:block;color:var(--mute);font-size:13px;margin-top:6px}.hr b{font-size:16px}
+          .hlink{display:inline-flex;align-items:center;gap:6px;color:var(--teal2);font-weight:700;font-size:16px;text-decoration:none;margin-top:10px}
+          .hbars{display:flex;gap:10px;overflow-x:auto;padding:22px 2px 4px;margin-top:6px;scrollbar-width:none}
+          .hbars::-webkit-scrollbar{display:none}
+          .hb{flex:0 0 52px;display:flex;flex-direction:column;align-items:center;cursor:pointer;position:relative}
+          .hb .tr{width:30px;height:120px;background:var(--track);border-radius:99px;display:flex;align-items:flex-end;overflow:hidden}
+          .hb .fl{width:100%;border-radius:99px;background:#a8dde8}
+          .hb.sel .fl{background:var(--teal)}
+          .hb.unp .fl{background:#d70f3a}
+          .hb .ex{position:absolute;top:-20px;width:18px;height:18px;border-radius:50%;background:#e5333f;color:#fff;font-size:12px;font-weight:800;display:grid;place-items:center}
+          .hb .v{font-size:11px;color:var(--mute);margin-top:6px;white-space:nowrap}
+          .hb.sel .v{color:var(--teal2);font-weight:700}
+          .hb .m{font-size:13px;margin-top:2px}.hb .y{font-size:11px;color:var(--mute)}
+          .bigbtn{display:block;width:100%;border:0;border-radius:18px;padding:15px;font-size:17px;font-weight:700;margin-top:14px;color:#fff;background:linear-gradient(90deg,#6fd0e3,var(--teal2));box-shadow:0 6px 16px rgba(27,159,189,.25)}
+          .bigbtn.out{background:transparent;color:var(--teal2);border:2px solid var(--teal);box-shadow:none;margin-top:10px}
+          .bigbtn.okb{background:linear-gradient(90deg,#5fd18b,#16a34a)}
+          .dots{display:flex;justify-content:center;gap:6px;margin:10px 0 4px}
+          .dots i{width:7px;height:7px;border-radius:99px;background:var(--line);transition:.2s}
+          .dots i.on{width:20px;background:var(--teal)}
+          .hsum{display:flex;gap:8px;margin:14px 0 4px}
+          .hsum div{flex:1;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px}
+          .hsum b{display:block;font-size:15px;white-space:nowrap}.hsum span{font-size:12px;color:var(--mute)}
+          .bnav{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);display:flex;justify-content:center;z-index:15;padding:6px 0 calc(6px + env(safe-area-inset-bottom))}
+          .bnav div{display:flex;max-width:720px;width:100%}
+          .bnav button{flex:1;border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11px;color:var(--mute);padding:4px 0}
+          .bnav button span{font-size:20px;width:40px;height:32px;display:grid;place-items:center;border-radius:99px}
+          .bnav button.on{color:var(--teal2);font-weight:700}
+          .bnav button.on span{background:var(--teal);color:#fff}
+
+          .hero .row{align-items:center}.hero a{text-decoration:none}
+          body{-webkit-tap-highlight-color:transparent;overscroll-behavior-y:contain}
+          .wrap{padding-bottom:100px}
+          </style>
+          </head>
+          <body>
+          <div id="root"></div>
+          <script>"use strict";
+          var A=window.Android||null;
+          var D={bills:[],notices:[],subState:{},names:{}};
+          var ui={tab:"home",homeIdx:0,homeSel:{},filter:"open",openSub:null,showPasif:false,syncing:false,msg:""};
+          var AY=["Ocak","Şubat","Mart","Nisan","Mayıs","Haziran","Temmuz","Ağustos","Eylül","Ekim","Kasım","Aralık"];
+          var TYPES={elektrik:{n:"Elektrik",i:"⚡",u:"kWh"},su:{n:"Su",i:"💧",u:"m³"},dogalgaz:{n:"Doğalgaz",i:"🔥",u:"m³"},diger:{n:"Diğer",i:"📄",u:""}};
+          function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})}
+          function tl(n){return Number(n||0).toLocaleString("tr-TR",{minimumFractionDigits:2,maximumFractionDigits:2})+" ₺"}
+          function fmtN(n,d){return Number(n).toLocaleString("tr-TR",{minimumFractionDigits:d===1?0:d,maximumFractionDigits:d})}
+          function todayISO(){var d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")}
+          function ago(n){var d=new Date();d.setDate(d.getDate()-n);return d.toISOString().slice(0,10)}
+          function days(iso){if(!iso)return null;return Math.round((new Date(iso+"T00:00:00")-new Date(todayISO()+"T00:00:00"))/864e5)}
+          function trDate(iso){if(!iso)return"—";var p=iso.split("-");return p[2]+"."+p[1]+"."+p[0]}
+          function trPeriod(p){return p?AY[+p.slice(5)-1]+" "+p.slice(0,4):""}
+          function status(b){if(b.paid)return"paid";var d=days(b.dueDate);if(d==null)return"open";if(d<0)return"over";if(d<=7)return"soon";return"open"}
+          function badge(b){var s=status(b),d=days(b.dueDate);if(b.noPay)return'<span class="badge b-paid">Ödeme gerekmez</span>';if(s==="paid")return'<span class="badge b-paid">Ödendi'+(b.assumed?" (varsayım)":"")+"</span>";if(s==="over")return'<span class="badge b-over">'+(-d)+" gün gecikti</span>";if(s==="soon")return'<span class="badge b-soon">'+(d===0?"Bugün son gün":d+" gün kaldı")+"</span>";return'<span class="badge b-open">Son ödeme '+trDate(b.dueDate)+"</span>"}
+          function subKey(b){return b.aboneNo?"a:"+b.aboneNo:"p:"+(b.provider||"")}
+          function nameOf(k,f){return(D.names||{})[k]||((f.provider||"Fatura")+(f.aboneNo?" · "+String(f.aboneNo).slice(-4):""))}
+
+          function load(){try{D=JSON.parse(A?A.data():"{}")}catch(e){D={}}D.bills=D.bills||[];D.notices=D.notices||[];D.subState=D.subState||{};D.names=D.names||{}}
+          window.reload=function(){load();render()};
+          window.syncState=function(on,msg){ui.syncing=on;if(msg!=null)ui.msg=msg;var el=document.getElementById("sync");if(el)el.innerHTML=syncHtml();if(!on&&msg){setTimeout(function(){ui.msg="";var e=document.getElementById("sync");if(e)e.innerHTML=syncHtml()},5000)}};
+          window.back=function(){if(ui.tab!=="home"){ui.tab="home";render();return true}return false};
+          function syncHtml(){return ui.syncing?'<span class="spin"></span>Yenileniyor…':(ui.msg?esc(ui.msg):'<a href="#" data-a="sync" style="color:inherit">↻ Yenile</a>')}
+
+          function subs(){
+            var G={};D.bills.forEach(function(b){var k=subKey(b);(G[k]=G[k]||[]).push(b)});
+            D.notices.forEach(function(n){if(n.kind==="borc"&&n.aboneNo&&!G["a:"+n.aboneNo])G["a:"+n.aboneNo]=[]});
+            return Object.keys(G).map(function(k){
+              var L=G[k].slice().sort(function(a,b){return((b.period||"")+(b.dueDate||"")).localeCompare((a.period||"")+(a.dueDate||""))});
+              var real=L.filter(function(b){return!b.noPay});var no=k.indexOf("a:")===0?k.slice(2):"";
+              var nts=D.notices.filter(function(n){return no&&n.aboneNo===no}).sort(function(a,b){return(b.date||"").localeCompare(a.date||"")});
+              var f=real[0]||L[0]||{type:(nts[0]||{}).type||"diger",provider:(nts[0]||{}).provider||"",aboneNo:no};
+              var open=real.filter(function(b){return!b.paid});
+              var act="",added="";L.forEach(function(b){[b.dueDate,b.period?b.period+"-15":""].forEach(function(d){if(d&&d>act)act=d});if(b.srcDate&&b.srcDate>added)added=b.srcDate});
+              nts.forEach(function(n){if(n.date>act)act=n.date;if(n.date>added)added=n.date});
+              var x={key:k,no:no,bills:L,real:real,last:real[0]||null,first:f,notices:nts,open:open,act:act,added:added,
+                debt:open.reduce(function(s,b){return s+b.amount},0),overdue:open.some(function(b){return status(b)==="over"})};
+              x.name=nameOf(k,f);x.pasif=isPasif(x);return x;
+            }).sort(function(a,b){return(b.overdue-a.overdue)||(b.debt-a.debt)||a.name.localeCompare(b.name)});
+          }
+          function isPasif(x){var o=D.subState[x.key];if(o&&o.s==="pasif")return!(x.added&&o.at&&x.added>o.at);if(x.open.length)return false;var m=x.act||"";if(o&&o.s==="aktif"&&o.at>m)m=o.at;return!m||m<ago(90)}
+
+          /* ---------- ana sayfa ---------- */
+          function homeView(){
+            var S=subs().filter(function(x){return!x.pasif});
+            S.sort(function(a,b){return(b.open.length>0)-(a.open.length>0)||(b.debt-a.debt)});
+            var tot=S.reduce(function(s,x){return s+x.debt},0),cnt=S.reduce(function(s,x){return s+x.open.length},0);
+            var soon=S.reduce(function(s,x){return s+x.open.filter(function(b){var d=days(b.dueDate);return d!=null&&d<=7}).reduce(function(t,b){return t+b.amount},0)},0);
+            var h='<div class="hero"><div class="row"><h2>Faturalarım</h2><span class="sub" id="sync">'+syncHtml()+'</span></div><div class="sub" style="margin-top:4px">'+(cnt?cnt+' ödenmemiş fatura · <b>'+tl(tot)+'</b>':(D.bills.length?'Ödenmemiş fatura görünmüyor 🎉':'Henüz fatura yok'))+'</div></div>';
+            if(!S.length)return h+'<div class="empty" style="margin-top:30px">Faturalar SMS ve Gmail\'den okunuyor.<br><br>Hiç gelmediyse <a href="#" data-a="settings">Ayarlar</a>\'dan Gmail bilgilerini kontrol et ve "Faturaları şimdi yenile"ye bas.</div>';
+            if(ui.homeIdx>=S.length)ui.homeIdx=0;
+            var opts=S.map(function(x,i){return'<option value="'+i+'">'+esc(x.name+(x.no?" · "+x.no:""))+'</option>'}).join("");
+            h+='<div class="hs" id="hs">'+S.map(function(x,i){return homeCard(x,i,opts)}).join("")+'</div>';
+            h+='<div class="dots" id="dots">'+S.map(function(x,i){return'<i class="'+(i===ui.homeIdx?"on":"")+'"></i>'}).join("")+'</div>';
+            h+='<div class="hsum"><div><b style="color:var(--bad)">'+tl(tot)+'</b><span>Toplam ödenmemiş</span></div><div><b style="color:var(--warn)">'+tl(soon)+'</b><span>7 gün içinde / gecikmiş</span></div><div><b>'+S.length+'</b><span>Aktif abonelik</span></div></div>';
+            return h;
+          }
+          function homeCard(x,i,opts){
+            var f=x.first,T=TYPES[f.type]||TYPES.diger,R=x.real.slice().sort(function(a,b){return(a.period||a.dueDate||"").localeCompare(b.period||b.dueDate||"")});
+            var selId=ui.homeSel[x.key],b=R.find(function(z){return z.id===selId})||(x.open.length?x.open.slice().sort(function(a,c){return(a.dueDate||"").localeCompare(c.dueDate||"")})[0]:x.last);
+            var h='<div class="hc" data-i="'+i+'"><div class="hsel"><span class="sub">'+T.i+' '+esc(f.provider||T.n)+(x.no?' · Abonelik - '+esc(x.no):"")+'</span><b>'+esc(x.name)+'</b><select data-hsel="1">'+opts.replace('value="'+i+'"','value="'+i+'" selected')+'</select></div>';
+            if(!b){var n=x.notices[0];h+='<div class="sub">Bu abonelik için henüz fatura yok.</div>'+(n?'<div style="margin-top:10px">'+(n.kind==="borc"?"⚠️ ":"ℹ️ ")+esc(n.text)+(n.amount?' <b>'+tl(n.amount)+'</b>':"")+'</div>':"");return h+'<button class="bigbtn out" data-a="gosub" data-k="'+esc(x.key)+'">Detaya git</button></div>'}
+            var st=status(b),pill=b.noPay?'<span class="pill ok">Ödeme gerekmez</span>':b.paid?'<span class="pill ok">✓ Ödendi'+(b.assumed?' (varsayım)':'')+'</span>':st==="over"?'<span class="pill bad">✕ Ödenmedi · '+(-days(b.dueDate))+' gün gecikti</span>':'<span class="pill bad">✕ Ödenmedi</span>';
+            var mon=b.period?AY[+b.period.slice(5)-1]:"Son";
+            h+='<div class="hgrid"><div><div style="font-size:18px">'+mon+' ayı faturam</div><div class="hamt">'+tl(b.amount)+'</div>'+pill+(b.link?'<br><a class="hlink" href="#" data-a="link" data-u="'+esc(b.link)+'">🧾 Faturayı Gör</a>':'')+'</div>';
+            h+='<div class="hr"><span class="chip2">'+T.i+' '+T.n+'</span><small>Son Ödeme Tarihi</small><b>'+trDate(b.dueDate)+'</b>'+(b.consumption!=null?'<small>Tüketim</small><b>'+fmtN(b.consumption,1)+' '+esc(b.unit||T.u)+'</b>':'')+'</div></div>';
+            if(b.note)h+='<div class="sub" style="margin-top:8px">📝 '+esc(b.note)+'</div>';
+            var nb=x.notices.filter(function(n){return n.kind==="borc"&&n.date>=ago(20)})[0];
+            if(nb)h+='<div class="err" style="margin-top:8px">⚠️ '+trDate(nb.date)+': kurum borç bildirdi'+(nb.amount?' ('+tl(nb.amount)+')':'')+'</div>';
+            var mx=Math.max.apply(null,R.map(function(z){return z.amount}))||1;
+            h+='<div class="hbars">'+R.map(function(z){var un=!z.paid&&!z.noPay;return'<div class="hb'+(z.id===b.id?" sel":"")+(un?" unp":"")+'" data-a="hpick" data-k="'+esc(x.key)+'" data-id="'+z.id+'">'+(un?'<span class="ex">!</span>':'')+'<div class="tr"><div class="fl" style="height:'+Math.max(8,z.amount/mx*100)+'%"></div></div><div class="v">'+fmtN(z.amount,2)+'</div><div class="m">'+(z.period?AY[+z.period.slice(5)-1].slice(0,3):"—")+'</div><div class="y">'+(z.period?z.period.slice(0,4):"")+'</div></div>'}).join("")+'</div>';
+            if(!b.noPay)h+=b.paid&&!b.assumed?'<button class="bigbtn out" data-a="paid" data-id="'+b.id+'" data-v="0">Ödenmedi olarak işaretle</button>'
+               :b.paid?'<button class="bigbtn okb" data-a="paid" data-id="'+b.id+'" data-v="1">Evet, ödendi ✓</button><button class="bigbtn out" data-a="paid" data-id="'+b.id+'" data-v="0">Hayır, ödenmedi</button>'
+               :'<button class="bigbtn" data-a="paid" data-id="'+b.id+'" data-v="1">Ödendi olarak işaretle</button>';
+            h+='<button class="bigbtn out" data-a="gosub" data-k="'+esc(x.key)+'">Detaya git</button>';
+            return h+'</div>';
+          }
+          function homeAfter(){
+            var hs=document.getElementById("hs");if(!hs)return;
+            var w=hs.clientWidth+12;hs.scrollLeft=ui.homeIdx*w;
+            Array.prototype.forEach.call(hs.querySelectorAll(".hbars"),function(el){var s=el.querySelector(".hb.sel");if(s)el.scrollLeft=s.offsetLeft-el.clientWidth+s.offsetWidth+40});
+            var t;hs.addEventListener("scroll",function(){clearTimeout(t);t=setTimeout(function(){var i=Math.round(hs.scrollLeft/w);if(i!==ui.homeIdx){ui.homeIdx=i;dots()}},80)});
+            Array.prototype.forEach.call(hs.querySelectorAll("select[data-hsel]"),function(sel){sel.addEventListener("change",function(){ui.homeIdx=+sel.value;hs.scrollTo({left:ui.homeIdx*w,behavior:"smooth"});dots()})});
+          }
+          function dots(){Array.prototype.forEach.call(document.querySelectorAll("#dots i"),function(e,j){e.className=j===ui.homeIdx?"on":""})}
+
+          /* ---------- abonelikler ---------- */
+          function kv(k,v){return v==null||v===""?"":'<tr><td class="sub" style="padding:3px 6px 3px 0">'+k+'</td><td style="padding:3px 0;text-align:right">'+v+'</td></tr>'}
+          function subsView(){
+            var All=subs();if(!All.length)return'<div class="empty">Henüz abonelik yok.</div>';
+            var S=All.filter(function(x){return!x.pasif}),P=All.filter(function(x){return x.pasif});
+            var h='<h1 style="margin:6px 0 12px">Aboneliklerim</h1>'+S.map(card).join("");
+            if(P.length)h+='<div class="card" data-a="pasifs" style="margin-top:14px"><div class="row"><b>💤 Pasif abonelikler ('+P.length+')</b><span class="sub">'+(ui.showPasif?"Gizle ▲":"Göster ▼")+'</span></div><div class="sub">3 aydır fatura gelmeyenler ve kapattıkların. Yeni fatura gelirse kendiliğinden aktife döner.</div></div>'+(ui.showPasif?P.map(card).join(""):"");
+            return h;
+            function card(x){
+              var f=x.first,T=TYPES[f.type]||TYPES.diger,l=x.last,d=l&&l.det||null,op=ui.openSub===x.key;
+              var st=x.overdue?'<span class="badge b-over">Gecikmiş</span>':x.open.length?'<span class="badge b-soon">'+x.open.length+' ödenmemiş</span>':'<span class="badge b-paid">Borç yok</span>';
+              var h='<div class="card" id="s_'+esc(x.key)+'"'+(x.pasif?' style="opacity:.75"':'')+'><div class="bill"><div class="ic t-'+f.type+'">'+T.i+'</div><div class="grow">';
+              h+='<div class="row"><b>'+esc(x.name)+' <a href="#" data-a="rn" data-k="'+esc(x.key)+'" style="font-size:13px;text-decoration:none">✏️</a></b>'+st+'</div>';
+              h+='<div class="sub">'+esc(f.provider||T.n)+(x.no?' · No <b style="user-select:all">'+esc(x.no)+'</b>':"")+'</div>';
+              if(l)h+='<div class="row" style="margin-top:6px"><span>Son fatura <b>'+tl(l.amount)+'</b>'+(l.period?' · '+trPeriod(l.period):'')+'</span>'+badge(l)+'</div>';
+              if(x.debt>0)h+='<div class="sub" style="color:var(--bad)">Ödenmemiş toplam: '+tl(x.debt)+'</div>';
+              x.notices.slice(0,2).forEach(function(n){h+='<div class="sub" style="margin-top:4px">'+(n.kind==="borc"?"⚠️ ":"ℹ️ ")+trDate(n.date)+': '+esc(n.text)+'</div>'});
+              var avg=x.real.length>1?x.real.slice(1,7).reduce(function(s,b){return s+b.amount},0)/Math.min(6,x.real.length-1):0;
+              if(l&&avg&&l.amount>avg*1.3)h+='<div class="err">📈 Son fatura önceki ortalamanın %'+Math.round((l.amount/avg-1)*100)+' üstünde (ort. '+tl(avg)+')</div>';
+              if(op){
+                var addr=(x.bills.find(function(b){return b.addr})||{}).addr;
+                h+='<table style="margin-top:8px">'+kv("Adres",esc(addr||""))+(d?kv("Sayaç",esc(d.meter))+kv("Tarife",esc(d.tariff))+kv("Sözleşme gücü",d.contract?esc(d.contract)+" kW":"")+kv("Okuma",d.lastRead?trDate(d.firstRead)+" → "+trDate(d.lastRead):"")+kv("Sonraki okuma",esc(d.nextRead||""))+kv("Endeks",d.startIdx?esc(d.startIdx)+" → "+esc(d.endIdx):"")+kv("Gündüz / puant / gece",d.day?esc(d.day)+" / "+esc(d.peak)+" / "+esc(d.night):"")+kv("Günlük ortalama",d.dailyAvg?esc(d.dailyAvg)+" kWh":"")+kv("Bu yıl / geçen yıl",d.yearCons?esc(d.yearCons)+" / "+esc(d.prevYearCons||"—")+" kWh":"")+kv("Eski borç",d.oldDebt&&d.oldDebt!=="0"?esc(d.oldDebt):""):"")+'</table>';
+                h+='<div class="sub" style="margin-top:8px"><b>Geçmiş faturalar</b></div><table>'+x.bills.map(function(b){return'<tr><td>'+(b.period?trPeriod(b.period):trDate(b.dueDate))+(b.noPay?' <span class="sub">(gecikme)</span>':'')+'</td><td class="r">'+tl(b.amount)+'</td><td class="r">'+(b.noPay?'—':b.paid?'<a href="#" data-a="paid" data-id="'+b.id+'" data-v="0" style="color:var(--ok)">✓'+(b.assumed?'?':'')+'</a>':'<a href="#" data-a="paid" data-id="'+b.id+'" data-v="1" style="color:var(--acc)">Ödendi yap</a>')+'</td></tr>'}).join("")+'</table>';
+              }
+              h+='<div class="acts"><button class="sm" data-a="opensub" data-k="'+esc(x.key)+'">'+(op?"Kapat":"Detay")+'</button>'+(l&&l.link?'<button class="sm" data-a="link" data-u="'+esc(l.link)+'">Faturayı gör ↗</button>':'')+'<button class="sm" data-a="subst" data-k="'+esc(x.key)+'" data-v="'+(x.pasif?"aktif":"pasif")+'">'+(x.pasif?"Aktife al":"Pasife al")+'</button></div>';
+              return h+'</div></div></div>';
+            }
+          }
+
+          /* ---------- fatura listesi ---------- */
+          function listView(){
+            var L=D.bills.slice();
+            if(ui.filter==="open")L=L.filter(function(b){return!b.paid&&!b.noPay});
+            L.sort(function(a,b){return ui.filter==="open"?(a.dueDate||"9").localeCompare(b.dueDate||"9"):(b.dueDate||"").localeCompare(a.dueDate||"")});
+            var h='<h1 style="margin:6px 0 12px">Faturalarım</h1><div class="chips">'+[["open","Ödenmemiş"],["all","Tümü"]].map(function(c){return'<button data-a="filter" data-f="'+c[0]+'" class="'+(ui.filter===c[0]?"on":"")+'">'+c[1]+'</button>'}).join("")+'</div>';
+            if(!L.length)return h+'<div class="empty">'+(ui.filter==="open"?"Ödenmemiş fatura yok 🎉":"Henüz fatura yok")+'</div>';
+            return h+L.map(function(b){var T=TYPES[b.type]||TYPES.diger,k=subKey(b);return'<div class="card"><div class="bill"><div class="ic t-'+b.type+'">'+T.i+'</div><div class="grow"><div class="row"><b>'+esc(nameOf(k,b))+'</b><span class="amt">'+tl(b.amount)+'</span></div><div class="row"><span class="sub">'+(b.period?trPeriod(b.period):"")+(b.consumption!=null?' · '+fmtN(b.consumption,1)+' '+esc(b.unit||T.u):'')+'</span>'+badge(b)+'</div><div class="acts">'+(b.noPay?'':b.paid?'<button class="sm" data-a="paid" data-id="'+b.id+'" data-v="0">Ödenmedi yap</button>'+(b.assumed?'<button class="sm pri" data-a="paid" data-id="'+b.id+'" data-v="1">Ödendiğini onayla</button>':''):'<button class="sm pri" data-a="paid" data-id="'+b.id+'" data-v="1">Ödendi ✓</button>')+(b.link?'<button class="sm" data-a="link" data-u="'+esc(b.link)+'">Faturayı gör ↗</button>':'')+'<button class="sm danger" data-a="del" data-id="'+b.id+'">Sil</button></div></div></div></div>'}).join("");
+          }
+
+          /* ---------- çizim ---------- */
+          function render(){
+            var home=ui.tab==="home";
+            var h='<div class="wrap">'+(home?homeView():ui.tab==="subs"?subsView():listView())+'</div>'+
+            '<nav class="bnav"><div>'+[["home","🏠","Ana Sayfa"],["subs","🏘️","Aboneliklerim"],["list","🧾","Faturalarım"],["settings","⚙️","Ayarlar"]].map(function(t){return'<button data-a="'+(t[0]==="settings"?"settings":"tab")+'" data-t="'+t[0]+'" class="'+(ui.tab===t[0]?"on":"")+'"><span>'+t[1]+'</span>'+t[2]+'</button>'}).join("")+'</div></nav>';
+            document.getElementById("root").innerHTML=h;
+            if(home)homeAfter();
+          }
+          document.addEventListener("click",function(e){
+            var el=e.target.closest("[data-a]");if(!el)return;e.preventDefault();var a=el.dataset.a;
+            if(a==="tab"){ui.tab=el.dataset.t;render();window.scrollTo(0,0)}
+            else if(a==="settings"){A&&A.settings()}
+            else if(a==="sync"){A&&A.sync()}
+            else if(a==="hpick"){ui.homeSel[el.dataset.k]=el.dataset.id;render()}
+            else if(a==="gosub"){ui.tab="subs";ui.openSub=el.dataset.k;render();setTimeout(function(){var c=document.getElementById("s_"+el.dataset.k);if(c)c.scrollIntoView({block:"start"})},30)}
+            else if(a==="paid"){A&&A.setPaid(el.dataset.id,el.dataset.v==="1");reload()}
+            else if(a==="link"){A&&A.open(el.dataset.u)}
+            else if(a==="opensub"){ui.openSub=ui.openSub===el.dataset.k?null:el.dataset.k;render()}
+            else if(a==="pasifs"){ui.showPasif=!ui.showPasif;render()}
+            else if(a==="subst"){A&&A.setSub(el.dataset.k,el.dataset.v);reload()}
+            else if(a==="filter"){ui.filter=el.dataset.f;render()}
+            else if(a==="rn"){var cur=(D.names||{})[el.dataset.k]||"";var v=prompt("Bu aboneliğe bir ad ver (örn. Ev, Dükkan, Villa):",cur);if(v!=null){A&&A.rename(el.dataset.k,v);reload()}}
+            else if(a==="del"){if(confirm("Bu fatura silinsin mi?")){A&&A.deleteBill(el.dataset.id);reload()}}
+          });
+          load();render();
+          </script>
+          </body>
+          </html>
           FATURA_EOF
           mkdir -p 'app/src/main/java/com/altintas/faturasms'
           cat > 'app/src/main/java/com/altintas/faturasms/BillFilter.java' <<'FATURA_EOF'
@@ -189,6 +490,234 @@ jobs:
           }
           FATURA_EOF
           mkdir -p 'app/src/main/java/com/altintas/faturasms'
+          cat > 'app/src/main/java/com/altintas/faturasms/BillStore.java' <<'FATURA_EOF'
+          package com.altintas.faturasms;
+
+          import android.content.Context;
+
+          import org.json.JSONArray;
+          import org.json.JSONObject;
+
+          import java.io.File;
+          import java.io.FileInputStream;
+          import java.io.FileOutputStream;
+          import java.nio.charset.StandardCharsets;
+          import java.text.SimpleDateFormat;
+          import java.util.Date;
+          import java.util.Iterator;
+          import java.util.Locale;
+
+          /**
+           * Faturalar, borç bildirimleri ve kullanıcının işaretleri telefonda (uygulamanın kendi klasöründe) saklanır.
+           * Veri: {bills:[...], notices:[...], subState:{}, names:{}, seen:{}, mailSince:ms, smsSince:ms}
+           */
+          public final class BillStore {
+              private static final String FILE = "faturalar.json";
+              private static final Object LOCK = new Object();
+              private final Context ctx;
+
+              public BillStore(Context c) { ctx = c.getApplicationContext(); }
+
+              public static String today() { return new SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).format(new Date()); }
+
+              static String dayOffset(int d) {
+                  return new SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).format(new Date(System.currentTimeMillis() + d * 86400000L));
+              }
+
+              public JSONObject load() {
+                  synchronized (LOCK) {
+                      try {
+                          File f = new File(ctx.getFilesDir(), FILE);
+                          if (!f.exists()) return empty();
+                          byte[] b = new byte[(int) f.length()];
+                          FileInputStream in = new FileInputStream(f);
+                          int off = 0, n;
+                          while (off < b.length && (n = in.read(b, off, b.length - off)) > 0) off += n;
+                          in.close();
+                          JSONObject o = new JSONObject(new String(b, StandardCharsets.UTF_8));
+                          for (String k : new String[]{"bills", "notices"}) if (!o.has(k)) o.put(k, new JSONArray());
+                          for (String k : new String[]{"subState", "names", "seen"}) if (!o.has(k)) o.put(k, new JSONObject());
+                          return o;
+                      } catch (Exception e) {
+                          return empty();
+                      }
+                  }
+              }
+
+              static JSONObject empty() {
+                  JSONObject o = new JSONObject();
+                  try {
+                      o.put("bills", new JSONArray()); o.put("notices", new JSONArray());
+                      o.put("subState", new JSONObject()); o.put("names", new JSONObject()); o.put("seen", new JSONObject());
+                  } catch (Exception ignored) {}
+                  return o;
+              }
+
+              public void save(JSONObject o) {
+                  synchronized (LOCK) {
+                      try {
+                          o.put("updatedAt", System.currentTimeMillis());
+                          File tmp = new File(ctx.getFilesDir(), FILE + ".tmp");
+                          FileOutputStream out = new FileOutputStream(tmp);
+                          out.write(o.toString().getBytes(StandardCharsets.UTF_8));
+                          out.close();
+                          tmp.renameTo(new File(ctx.getFilesDir(), FILE));
+                      } catch (Exception ignored) {}
+                  }
+              }
+
+              /* ---------------- ekleme ---------------- */
+
+              public static boolean seen(JSONObject o, String key) { return o.optJSONObject("seen") != null && o.optJSONObject("seen").has(key); }
+
+              public static void markSeen(JSONObject o, String key) {
+                  try { o.getJSONObject("seen").put(key, 1); } catch (Exception ignored) {}
+              }
+
+              static String subKey(String provider, String aboneNo) {
+                  return (aboneNo == null || aboneNo.isEmpty()) ? "p:" + provider : "a:" + aboneNo;
+              }
+
+              /**
+               * Çözülmüş bir öğeyi ekler. Yeni bir fatura eklendiyse onu döndürür, yoksa null.
+               * @param date kaynağın (SMS / mail) tarihi, ms
+               */
+              public static JSONObject add(JSONObject o, Parser.Item it, String srcKey, long date, String source) {
+                  try {
+                      if (it == null || "info".equals(it.kind)) return null;
+                      String d = new SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).format(new Date(date));
+                      if ("debt".equals(it.kind)) {
+                          JSONArray ns = o.getJSONArray("notices");
+                          String id = "n" + Math.abs((it.provider + it.aboneNo + d + it.amount).hashCode());
+                          for (int i = 0; i < ns.length(); i++) if (id.equals(ns.getJSONObject(i).optString("id"))) return null;
+                          JSONObject n = new JSONObject();
+                          n.put("id", id); n.put("date", d); n.put("provider", it.provider); n.put("type", it.type);
+                          n.put("aboneNo", it.aboneNo); n.put("text", it.text); n.put("kind", "borc");
+                          if (it.amount > 0) n.put("amount", it.amount);
+                          ns.put(n);
+                          return null;
+                      }
+                      if (it.amount <= 0) return null;
+                      JSONArray bs = o.getJSONArray("bills");
+                      // Aynı fatura başka kaynaktan gelmiş mi? (SMS + mail)
+                      for (int i = 0; i < bs.length(); i++) {
+                          JSONObject b = bs.getJSONObject(i);
+                          boolean sameAcc = !it.aboneNo.isEmpty() ? it.aboneNo.equals(b.optString("aboneNo"))
+                                  : it.provider.equals(b.optString("provider")) && b.optString("aboneNo").isEmpty();
+                          if (!sameAcc) continue;
+                          boolean samePer = !it.period.isEmpty() && it.period.equals(b.optString("period"));
+                          boolean sameDue = !it.dueDate.isEmpty() && it.dueDate.equals(b.optString("dueDate"));
+                          boolean sameAmt = Math.abs(b.optDouble("amount", 0) - it.amount) < 0.6;
+                          if ((samePer || sameDue) && (sameAmt || it.noPay == b.optBoolean("noPay"))) {
+                              if (sameAmt || (samePer && sameDue)) {
+                                  enrich(b, it);
+                                  return null;
+                              }
+                          }
+                      }
+                      JSONObject b = new JSONObject();
+                      b.put("id", "b" + Math.abs((srcKey + it.aboneNo + it.amount).hashCode()) + "_" + bs.length());
+                      b.put("type", it.type); b.put("provider", it.provider); b.put("aboneNo", it.aboneNo);
+                      b.put("period", it.period); b.put("amount", it.amount); b.put("dueDate", it.dueDate);
+                      b.put("source", source); b.put("createdAt", System.currentTimeMillis()); b.put("srcDate", d);
+                      enrich(b, it);
+                      if (it.noPay) { b.put("noPay", true); b.put("paid", true); b.put("note", it.text); }
+                      else if (!it.dueDate.isEmpty() && it.dueDate.compareTo(dayOffset(-10)) < 0) {
+                          // Son ödemesi epey geçmiş eski fatura: ödendi varsay, kullanıcı onaylar
+                          b.put("paid", true); b.put("assumed", true);
+                      } else b.put("paid", false);
+                      bs.put(b);
+                      return b;
+                  } catch (Exception e) {
+                      return null;
+                  }
+              }
+
+              static void enrich(JSONObject b, Parser.Item it) throws Exception {
+                  if (!it.link.isEmpty() && b.optString("link").isEmpty()) b.put("link", it.link);
+                  if (it.consumption != null && b.isNull("consumption")) b.put("consumption", it.consumption);
+                  if (!it.unit.isEmpty() && b.optString("unit").isEmpty()) b.put("unit", it.unit);
+                  if (!it.addr.isEmpty() && b.optString("addr").isEmpty()) b.put("addr", it.addr);
+                  if (!it.invNo.isEmpty() && b.optString("invNo").isEmpty()) b.put("invNo", it.invNo);
+                  if (!it.period.isEmpty() && b.optString("period").isEmpty()) b.put("period", it.period);
+                  if (it.det != null && !b.has("det")) {
+                      JSONObject d = new JSONObject();
+                      for (java.util.Map.Entry<String, String> e : it.det.entrySet()) d.put(e.getKey(), e.getValue());
+                      b.put("det", d);
+                  }
+              }
+
+              /* ---------------- kullanıcı işlemleri ---------------- */
+
+              public void setPaid(String id, boolean paid) {
+                  JSONObject o = load();
+                  try {
+                      JSONArray bs = o.getJSONArray("bills");
+                      for (int i = 0; i < bs.length(); i++) {
+                          JSONObject b = bs.getJSONObject(i);
+                          if (id.equals(b.optString("id"))) {
+                              b.put("paid", paid); b.put("assumed", false); b.put("paidDate", paid ? today() : "");
+                          }
+                      }
+                  } catch (Exception ignored) {}
+                  save(o);
+              }
+
+              public void rename(String key, String name) {
+                  JSONObject o = load();
+                  try { if (name == null || name.trim().isEmpty()) o.getJSONObject("names").remove(key); else o.getJSONObject("names").put(key, name.trim()); } catch (Exception ignored) {}
+                  save(o);
+              }
+
+              public void setSub(String key, String state) {
+                  JSONObject o = load();
+                  try {
+                      JSONObject s = new JSONObject(); s.put("s", state); s.put("at", today());
+                      o.getJSONObject("subState").put(key, s);
+                  } catch (Exception ignored) {}
+                  save(o);
+              }
+
+              public void deleteBill(String id) {
+                  JSONObject o = load();
+                  try {
+                      JSONArray bs = o.getJSONArray("bills"), nb = new JSONArray();
+                      for (int i = 0; i < bs.length(); i++) if (!id.equals(bs.getJSONObject(i).optString("id"))) nb.put(bs.getJSONObject(i));
+                      o.put("bills", nb);
+                  } catch (Exception ignored) {}
+                  save(o);
+              }
+
+              /** Bildirim için: ödenmemiş ve son ödemesi 3 gün içinde ya da geçmiş faturalar. */
+              public static java.util.List<JSONObject> dueSoon(JSONObject o) {
+                  java.util.List<JSONObject> out = new java.util.ArrayList<>();
+                  String lim = dayOffset(3);
+                  JSONArray bs = o.optJSONArray("bills");
+                  if (bs == null) return out;
+                  for (int i = 0; i < bs.length(); i++) {
+                      JSONObject b = bs.optJSONObject(i);
+                      if (b == null || b.optBoolean("paid") || b.optBoolean("noPay")) continue;
+                      String d = b.optString("dueDate");
+                      if (!d.isEmpty() && d.compareTo(lim) <= 0) out.add(b);
+                  }
+                  return out;
+              }
+
+              public static String nameOf(JSONObject o, JSONObject b) {
+                  JSONObject names = o.optJSONObject("names");
+                  String k = subKey(b.optString("provider"), b.optString("aboneNo"));
+                  if (names != null && names.has(k)) return names.optString(k);
+                  String p = b.optString("provider");
+                  return p.isEmpty() ? "Fatura" : p;
+              }
+
+              static int count(JSONObject o, String k) { JSONArray a = o.optJSONArray(k); return a == null ? 0 : a.length(); }
+
+              @SuppressWarnings("unused")
+              static Iterator<String> keys(JSONObject o) { return o.keys(); }
+          }
+          FATURA_EOF
+          mkdir -p 'app/src/main/java/com/altintas/faturasms'
           cat > 'app/src/main/java/com/altintas/faturasms/DigestReceiver.java' <<'FATURA_EOF'
           package com.altintas.faturasms;
 
@@ -198,27 +727,33 @@ jobs:
           import android.content.Context;
           import android.content.Intent;
 
-          /** Günde birkaç kez uyanır; özet zamanı geldiyse tek mail gönderir. Telefon açılınca alarmı yeniden kurar. */
+          /** Birkaç saatte bir uyanır: SMS + Gmail'i yeniler, son ödeme hatırlatmasını yapar. Telefon açılınca alarmı yeniden kurar. */
           public class DigestReceiver extends BroadcastReceiver {
               public static void arm(Context ctx) {
                   AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
                   if (am == null) return;
-                  Intent i = new Intent(ctx, DigestReceiver.class).setAction("com.altintas.faturasms.DIGEST");
+                  Intent i = new Intent(ctx, DigestReceiver.class).setAction("com.altintas.faturasms.TICK");
                   PendingIntent pi = PendingIntent.getBroadcast(ctx, 7, i, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-                  am.setInexactRepeating(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + 15 * 60000L,
+                  am.setInexactRepeating(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + 20 * 60000L,
                           AlarmManager.INTERVAL_HOUR * 3, pi);
               }
 
               @Override
               public void onReceive(final Context context, Intent intent) {
-                  if (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction()) || Intent.ACTION_MY_PACKAGE_REPLACED.equals(intent.getAction())) {
+                  String a = intent.getAction();
+                  if (Intent.ACTION_BOOT_COMPLETED.equals(a) || Intent.ACTION_MY_PACKAGE_REPLACED.equals(a)) {
                       arm(context);
                       return;
                   }
                   final PendingResult pr = goAsync();
                   new Thread(new Runnable() {
                       public void run() {
-                          try { Forwarder.sendDigest(context, false); } catch (Throwable ignored) {} finally { pr.finish(); }
+                          try {
+                              Sync.Result r = Sync.all(context);
+                              if (!r.added.isEmpty()) Notifier.newBills(context, new BillStore(context).load(), r.added);
+                              Notifier.dueCheck(context, false);
+                          } catch (Throwable ignored) {
+                          } finally { pr.finish(); }
                       }
                   }).start();
               }
@@ -421,7 +956,6 @@ jobs:
 
           import android.Manifest;
           import android.app.Activity;
-          import android.app.PendingIntent;
           import android.content.Intent;
           import android.content.pm.PackageManager;
           import android.graphics.Color;
@@ -447,8 +981,7 @@ jobs:
               private Store store;
               private EditText email, pass;
               private TextView status, log;
-              private Button scanBtn, testBtn, updBtn, digestBtn;
-              private android.widget.RadioGroup modeGroup;
+              private Button scanBtn, testBtn, updBtn;
               private TextView updText;
               private Updater.Release pending;
               private boolean checkedUpdate;
@@ -458,15 +991,7 @@ jobs:
                   super.onCreate(b);
                   store = new Store(this);
                   DigestReceiver.arm(this);
-                  // Kurulum tamamsa doğrudan kartlı Fatura Takip ekranını aç
-                  boolean wantSettings = getIntent() != null && (getIntent().getBooleanExtra("settings", false)
-                          || ACTION_SETTINGS.equals(getIntent().getAction()));
-                  if (!wantSettings && hasSms() && store.configured()) {
-                      openTakip();
-                      finish();
-                      return;
-                  }
-                  setTitle("Fatura Takip · SMS ayarları");
+                  setTitle("Fatura Takip · Ayarlar");
 
                   ScrollView sv = new ScrollView(this);
                   LinearLayout root = new LinearLayout(this);
@@ -475,16 +1000,12 @@ jobs:
                   root.setPadding(p, p, p, p);
                   sv.addView(root);
 
-                  root.addView(text("Fatura Takip", 22, true));
-                  Button openBtn = button("📊 Faturalarımı aç");
-                  openBtn.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { openTakip(); } });
-                  root.addView(openBtn);
-                  root.addView(label("SMS ayarları"));
-                  root.addView(text("CK Boğaziçi, İSKİ, İGDAŞ gibi kurumlardan gelen fatura SMS'lerini biriktirir ve seçtiğin günde "
-                          + "Gmail'ine TEK bir özet maili olarak gönderir. Fatura Takip bu özeti okur. "
-                          + "Kesinti duyuruları, kampanyalar, doğrulama kodları ve banka mesajları gönderilmez.", 14, false));
+                  root.addView(text("Ayarlar", 22, true));
+                  root.addView(text("Fatura Takip faturaları telefondaki SMS'lerden ve Gmail'deki fatura maillerinden kendisi okur. "
+                          + "Hiçbir yere mail göndermez; veriler sadece bu telefonda durur. "
+                          + "Doğrulama kodu ve banka mesajlarına bakılmaz.", 14, false));
 
-                  root.addView(label("Gmail adresi"));
+                  root.addView(label("Gmail adresi (fatura mailleri buradan okunur)"));
                   email = new EditText(this);
                   email.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
                   email.setText(store.email());
@@ -498,31 +1019,18 @@ jobs:
                   root.addView(pass);
                   root.addView(text("Normal Gmail şifren değil. myaccount.google.com/apppasswords adresinden alınır.", 12, false));
 
-                  testBtn = button("Kaydet ve test maili gönder");
+                  testBtn = button("Kaydet ve Gmail bağlantısını dene");
                   testBtn.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { saveAndTest(); } });
                   root.addView(testBtn);
 
-                  root.addView(label("Özet maili ne zaman gelsin?"));
-                  modeGroup = new android.widget.RadioGroup(this);
-                  String[] modes = {"Haftada bir (Pazartesi sabahı)", "Ayda iki kez (1'i ve 15'i)", "Ayda bir (15'i)", "Hiç otomatik gönderme (sadece ben basınca)"};
-                  for (int i = 0; i < modes.length; i++) {
-                      android.widget.RadioButton rb = new android.widget.RadioButton(this);
-                      rb.setText(modes[i]); rb.setId(1000 + i);
-                      modeGroup.addView(rb);
-                  }
-                  modeGroup.check(1000 + store.digestMode());
-                  modeGroup.setOnCheckedChangeListener(new android.widget.RadioGroup.OnCheckedChangeListener() {
-                      public void onCheckedChanged(android.widget.RadioGroup g, int id) { store.setDigestMode(id - 1000); refresh(); }
-                  });
-                  root.addView(modeGroup);
-
-                  digestBtn = button("Özeti şimdi gönder (test)");
-                  digestBtn.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { sendNow(); } });
-                  root.addView(digestBtn);
-
-                  scanBtn = button("Eski fatura SMS'lerini özete ekle (son 120 gün)");
+                  scanBtn = button("Faturaları şimdi yenile (SMS + Gmail)");
                   scanBtn.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { scan(); } });
                   root.addView(scanBtn);
+
+                  Button openBtn = button("📊 Faturalarıma dön");
+                  openBtn.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+                      startActivity(new Intent(MainActivity.this, WebActivity.class).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)); finish(); } });
+                  root.addView(openBtn);
 
                   Button bat = button("Arka planda çalışmasına izin ver (pil)");
                   bat.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { askBattery(); } });
@@ -556,33 +1064,6 @@ jobs:
                   if (status == null) return;
                   refresh();
                   // Uygulama açılınca mail GÖNDERİLMEZ; sadece durum gösterilir.
-              }
-
-              static final String TAKIP_URL = "https://claude.ai/artifact/B7D98A57KXh27nJ8GN3iVN";
-              static final String ACTION_SETTINGS = "com.altintas.faturasms.SETTINGS";
-
-              /** Fatura Takip sayfasını uygulama içi tarayıcı sekmesinde (Custom Tab) açar; menüye "SMS ayarları" ekler. */
-              private void openTakip() {
-                  Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(TAKIP_URL));
-                  Bundle extras = new Bundle();
-                  extras.putBinder("android.support.customtabs.extra.SESSION", null);
-                  i.putExtras(extras);
-                  i.putExtra("android.support.customtabs.extra.TOOLBAR_COLOR", 0xFF1B9FBD);
-                  i.putExtra("android.support.customtabs.extra.TITLE_VISIBILITY", 0);
-                  i.putExtra("android.support.customtabs.extra.SHARE_STATE", 2);
-                  Intent st = new Intent(this, MainActivity.class).setAction(ACTION_SETTINGS).putExtra("settings", true);
-                  PendingIntent pi = PendingIntent.getActivity(this, 11, st, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-                  Bundle item = new Bundle();
-                  item.putString("android.support.customtabs.customaction.MENU_ITEM_TITLE", "⚙️ SMS ayarları / güncelleme");
-                  item.putParcelable("android.support.customtabs.customaction.PENDING_INTENT", pi);
-                  ArrayList<Bundle> items = new ArrayList<>();
-                  items.add(item);
-                  i.putParcelableArrayListExtra("android.support.customtabs.extra.MENU_ITEMS", items);
-                  try {
-                      startActivity(i);
-                  } catch (Exception e) {
-                      try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(TAKIP_URL))); } catch (Exception ignored) {}
-                  }
               }
 
               /* ---- güncelleme ---- */
@@ -651,10 +1132,8 @@ jobs:
                   if (!perm) s = "⚠️ SMS izni verilmedi. Uygulama çalışamaz.";
                   else if (!store.configured()) s = "⚠️ Gmail uygulama şifresini gir ve test et.";
                   else {
-                      long n = Forwarder.nextDigest(store);
-                      s = "✅ Hazır. Özette bekleyen: " + store.queue().size() + " SMS"
-                          + (n == 0 ? " · Otomatik gönderim kapalı" : " · Sonraki özet: " + Forwarder.day(n))
-                          + " · Şimdiye kadar iletilen: " + store.sentCount();
+                      org.json.JSONObject o = new BillStore(this).load();
+                      s = "✅ Hazır. Kayıtlı fatura: " + BillStore.count(o, "bills") + " · Yeni SMS ve mailler birkaç saatte bir kendiliğinden okunur.";
                   }
                   status.setText(s);
                   log.setText(store.logText());
@@ -669,26 +1148,12 @@ jobs:
                   store.saveCreds(e, pw);
                   pass.setText("");
                   pass.setHint("Kayıtlı (değiştirmek için yaz)");
-                  setBusy(true, "Test maili gönderiliyor…");
-                  final String to = e, pwd = pw;
+                  setBusy(true, "Gmail'e bağlanılıyor…");
                   new Thread(new Runnable() {
                       public void run() {
-                          String msg;
-                          try {
-                              Smtp.send(Forwarder.HOST, Forwarder.PORT, true, to, pwd, to, "Fatura SMS test",
-                                      "Fatura SMS uygulaması Gmail'e bağlandı. Bu maili silebilirsin.");
-                              store.log("Test maili gönderildi");
-                              msg = "✅ Test maili gönderildi.";
-                          } catch (Smtp.SmtpException ex) {
-                              msg = (ex.code == 535 || ex.code == 534)
-                                      ? "❌ Gmail şifreyi kabul etmedi. 16 haneli uygulama şifresini kontrol et (2 adımlı doğrulama açık olmalı)."
-                                      : "❌ Gmail hatası: " + ex.code;
-                              store.log(msg);
-                          } catch (Exception ex) {
-                              msg = "❌ Gmail'e ulaşılamadı. İnternet bağlantını kontrol et.";
-                              store.log(msg);
-                          }
-                          final String m = msg;
+                          String err = Sync.testLogin(MainActivity.this);
+                          final String m = err == null ? "✅ Gmail bağlantısı tamam. Şimdi \"Faturaları şimdi yenile\"ye bas." : "❌ " + err;
+                          store.log(m);
                           runOnUiThread(new Runnable() { public void run() { setBusy(false, null); refresh(); status.setText(m); } });
                       }
                   }).start();
@@ -696,41 +1161,20 @@ jobs:
 
               private void scan() {
                   if (!hasSms()) { askSmsPermission(); return; }
-                  if (!store.configured()) { status.setText("Önce Gmail uygulama şifresini girip test et."); return; }
-                  List<Sms> inbox;
-                  try {
-                      inbox = Forwarder.readInbox(this, 120);
-                  } catch (Exception e) {
-                      status.setText("SMS'ler okunamadı: " + e.getMessage());
-                      return;
-                  }
-                  Forwarder.Result r = Forwarder.collect(this, inbox);
-                  refresh();
-                  status.setText(inbox.size() + " SMS tarandı. " + r.added + " fatura SMS'i özete eklendi (bekleyen " + store.queue().size() + "). Mail gönderilmedi.");
-              }
-
-              private void sendNow() {
-                  if (!store.configured()) { status.setText("Önce Gmail uygulama şifresini girip test et."); return; }
-                  if (store.queue().isEmpty()) { status.setText("Özette bekleyen SMS yok. Önce \"Eski fatura SMS'lerini özete ekle\"ye basabilirsin."); return; }
-                  setBusy(true, "Özet maili gönderiliyor…");
+                  setBusy(true, "SMS'ler ve Gmail okunuyor… (ilk seferde 1-2 dakika sürebilir)");
                   new Thread(new Runnable() {
                       public void run() {
-                          final Forwarder.Result r = Forwarder.sendDigest(MainActivity.this, true);
-                          runOnUiThread(new Runnable() {
-                              public void run() {
-                                  setBusy(false, null);
-                                  refresh();
-                                  status.setText(r.error != null ? "❌ " + r.error
-                                          : "✅ " + r.sent + " SMS tek özet mailinde gönderildi" + (r.mails > 1 ? " (" + r.mails + " parça)" : "") + ".");
-                              }
-                          });
+                          final Sync.Result r = Sync.all(MainActivity.this);
+                          runOnUiThread(new Runnable() { public void run() {
+                              setBusy(false, null); refresh();
+                              status.setText((r.error != null ? "⚠️ " + r.error + "\n" : "✅ ") + r.newBills + " yeni fatura bulundu (" + r.sms + " SMS, " + r.mails + " mail tarandı).");
+                          } });
                       }
                   }).start();
               }
 
               private void setBusy(boolean busy, String msg) {
                   scanBtn.setEnabled(!busy);
-                  digestBtn.setEnabled(!busy);
                   testBtn.setEnabled(!busy);
                   if (msg != null) status.setText(msg);
               }
@@ -795,6 +1239,411 @@ jobs:
           }
           FATURA_EOF
           mkdir -p 'app/src/main/java/com/altintas/faturasms'
+          cat > 'app/src/main/java/com/altintas/faturasms/Notifier.java' <<'FATURA_EOF'
+          package com.altintas.faturasms;
+
+          import android.app.Notification;
+          import android.app.NotificationChannel;
+          import android.app.NotificationManager;
+          import android.app.PendingIntent;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.content.SharedPreferences;
+
+          import org.json.JSONObject;
+
+          import java.text.NumberFormat;
+          import java.util.List;
+          import java.util.Locale;
+
+          /** Telefona bildirim: yeni fatura geldiğinde ve son ödeme yaklaşınca (günde en fazla bir kez). */
+          public final class Notifier {
+              private Notifier() {}
+
+              static final String CH = "fatura";
+
+              static NotificationManager nm(Context c) {
+                  NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
+                  if (nm != null && nm.getNotificationChannel(CH) == null) {
+                      NotificationChannel ch = new NotificationChannel(CH, "Faturalar", NotificationManager.IMPORTANCE_DEFAULT);
+                      ch.setDescription("Yeni fatura ve son ödeme hatırlatmaları");
+                      nm.createNotificationChannel(ch);
+                  }
+                  return nm;
+              }
+
+              public static String tl(double v) {
+                  NumberFormat f = NumberFormat.getNumberInstance(new Locale("tr", "TR"));
+                  f.setMinimumFractionDigits(2); f.setMaximumFractionDigits(2);
+                  return f.format(v) + " ₺";
+              }
+
+              static String tr(String iso) {
+                  if (iso == null || iso.length() < 10) return "";
+                  return iso.substring(8, 10) + "." + iso.substring(5, 7);
+              }
+
+              static void show(Context c, int id, String title, String text) {
+                  NotificationManager nm = nm(c);
+                  if (nm == null) return;
+                  Intent open = new Intent(c, WebActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                  PendingIntent pi = PendingIntent.getActivity(c, id, open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+                  Notification n = new Notification.Builder(c, CH)
+                          .setSmallIcon(android.R.drawable.ic_dialog_info)
+                          .setContentTitle(title)
+                          .setContentText(text)
+                          .setStyle(new Notification.BigTextStyle().bigText(text))
+                          .setContentIntent(pi)
+                          .setAutoCancel(true)
+                          .build();
+                  try { nm.notify(id, n); } catch (SecurityException ignored) {}
+              }
+
+              /** Yeni eklenen faturalar için. */
+              public static void newBills(Context c, JSONObject o, List<JSONObject> added) {
+                  StringBuilder sb = new StringBuilder();
+                  int n = 0;
+                  for (JSONObject b : added) {
+                      if (b.optBoolean("paid") || b.optBoolean("noPay")) continue;
+                      n++;
+                      sb.append(BillStore.nameOf(o, b)).append(": ").append(tl(b.optDouble("amount")))
+                        .append(b.optString("dueDate").isEmpty() ? "" : " · son ödeme " + tr(b.optString("dueDate"))).append('\n');
+                  }
+                  if (n == 0) return;
+                  show(c, 101, n == 1 ? "Yeni fatura" : n + " yeni fatura", sb.toString().trim());
+              }
+
+              /** Son ödeme yaklaşan / geçen ödenmemiş faturalar — günde bir kez, sabah 9'dan sonra. */
+              public static void dueCheck(Context c, boolean force) {
+                  SharedPreferences sp = c.getSharedPreferences("faturasms", Context.MODE_PRIVATE);
+                  String today = BillStore.today();
+                  int hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY);
+                  if (!force && (today.equals(sp.getString("dueNotified", "")) || hour < 9)) return;
+                  JSONObject o = new BillStore(c).load();
+                  List<JSONObject> l = BillStore.dueSoon(o);
+                  sp.edit().putString("dueNotified", today).apply();
+                  if (l.isEmpty()) return;
+                  double tot = 0;
+                  StringBuilder sb = new StringBuilder();
+                  for (JSONObject b : l) {
+                      tot += b.optDouble("amount");
+                      String d = b.optString("dueDate");
+                      sb.append(d.compareTo(today) < 0 ? "⚠️ " : "• ").append(BillStore.nameOf(o, b)).append(": ")
+                        .append(tl(b.optDouble("amount"))).append(" · ").append(tr(d)).append('\n');
+                  }
+                  show(c, 102, l.size() + " fatura ödeme bekliyor · " + tl(tot), sb.toString().trim());
+              }
+          }
+          FATURA_EOF
+          mkdir -p 'app/src/main/java/com/altintas/faturasms'
+          cat > 'app/src/main/java/com/altintas/faturasms/Parser.java' <<'FATURA_EOF'
+          package com.altintas.faturasms;
+
+          import java.util.ArrayList;
+          import java.util.List;
+          import java.util.Locale;
+          import java.util.regex.Matcher;
+          import java.util.regex.Pattern;
+
+          /**
+           * SMS ve mail metinlerinden fatura / borç bilgisini çıkarır. Android'e bağımlı değil (masaüstünde test edilebilir).
+           */
+          public final class Parser {
+              private Parser() {}
+
+              /** Bir metinden çıkan sonuç. kind: "bill" (fatura), "debt" (borç hatırlatması), "info" (bilgi). */
+              public static final class Item {
+                  public String kind = "bill";
+                  public String type = "diger";      // elektrik | su | dogalgaz | diger
+                  public String provider = "";
+                  public String aboneNo = "";
+                  public double amount = -1;
+                  public String dueDate = "";       // YYYY-MM-DD
+                  public String period = "";        // YYYY-MM
+                  public String link = "";
+                  public String text = "";
+                  public Double consumption = null;
+                  public String unit = "";
+                  public String addr = "";
+                  public String invNo = "";
+                  public boolean noPay = false;
+                  public java.util.Map<String, String> det = null;
+
+                  @Override public String toString() {
+                      return kind + " " + type + " " + provider + " #" + aboneNo + " " + amount + " TL son:" + dueDate + " dönem:" + period
+                              + (link.isEmpty() ? "" : " link") + (consumption != null ? " tük:" + consumption : "");
+                  }
+              }
+
+              static final String[] AYLAR = {"ocak", "subat", "mart", "nisan", "mayis", "haziran", "temmuz", "agustos", "eylul", "ekim", "kasim", "aralik"};
+
+              /* ---------------- yardımcılar ---------------- */
+
+              /** Türkçe sayı: "1.235,80" "3530.00" "22015" "512,00" → double */
+              public static double num(String s) {
+                  if (s == null) return -1;
+                  s = s.trim().replace(" ", "");
+                  if (s.isEmpty()) return -1;
+                  int c = s.lastIndexOf(','), d = s.lastIndexOf('.');
+                  if (c >= 0 && d >= 0) {
+                      if (c > d) s = s.replace(".", "").replace(',', '.');
+                      else s = s.replace(",", "");
+                  } else if (c >= 0) {
+                      s = s.replace(',', '.');
+                  } else if (d >= 0) {
+                      // "22.015" binlik mi ondalık mı? Noktadan sonra tam 3 hane ve tek nokta → binlik
+                      String after = s.substring(d + 1);
+                      if (after.length() == 3 && s.indexOf('.') == d) s = s.replace(".", "");
+                      else if (s.indexOf('.') != d) s = s.replace(".", "");
+                  }
+                  try { return Double.parseDouble(s); } catch (Exception e) { return -1; }
+              }
+
+              /** "21-09-2026", "04/09/2026", "7. 9.2026", "05.11.2026" → "2026-09-21" */
+              public static String date(String s) {
+                  if (s == null) return "";
+                  Matcher m = Pattern.compile("(\\d{1,2})\\s*[./-]\\s*(\\d{1,2})\\s*[./-]\\s*(\\d{4})").matcher(s);
+                  if (!m.find()) return "";
+                  int g = Integer.parseInt(m.group(1)), a = Integer.parseInt(m.group(2));
+                  if (a < 1 || a > 12 || g < 1 || g > 31) return "";
+                  return m.group(3) + "-" + two(a) + "-" + two(g);
+              }
+
+              static String two(int v) { return v < 10 ? "0" + v : String.valueOf(v); }
+
+              static String firstLink(String t) {
+                  Matcher m = Pattern.compile("https?://[^\\s)\\]\"'<>]+").matcher(t);
+                  while (m.find()) {
+                      String u = m.group().replaceAll("[.,;]+$", "");
+                      String l = u.toLowerCase(Locale.ROOT);
+                      if (l.contains("unsubscribe") || l.contains("facebook") || l.contains("twitter") || l.contains("instagram")
+                              || l.contains("apps.apple") || l.contains("play.google") || l.endsWith(".png") || l.endsWith(".jpg") || l.endsWith(".gif"))
+                          continue;
+                      if (l.matches("https?://(www\\.)?[a-z.]+/?") ) continue; // sadece ana sayfa
+                      return u;
+                  }
+                  return "";
+              }
+
+              static String find(String re, String t) {
+                  Matcher m = Pattern.compile(re, Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE).matcher(t);
+                  return m.find() ? m.group(1) : null;
+              }
+
+              static String providerOf(String from, String t) {
+                  String f = BillFilter.norm(from + " " + t);
+                  if (f.contains("turkcell")) return "Turkcell";
+                  if (f.contains("turk telekom") || f.contains("turktelekom") || f.contains("tt mobil")) return "Türk Telekom";
+                  if (f.contains("ckbogazici") || f.contains("ck enerji") || f.contains("ck bogazici") || f.contains("ckenerji")) return "CK Boğaziçi";
+                  if (f.contains("aksa coruh") || f.contains("coruh") || f.contains("aksacoruh")) return "AKSA Çoruh Elektrik";
+                  if (f.contains("aksa") && (f.contains("gaz") || f.contains("dogalgaz"))) return "AKSA Doğalgaz";
+                  if (f.contains("igdas")) return "İGDAŞ";
+                  if (f.contains("tiski")) return "TİSKİ";
+                  if (f.contains("iski")) return "İSKİ";
+                  if (f.contains("enerjisa")) return "Enerjisa";
+                  if (f.contains("bedas")) return "BEDAŞ";
+                  if (f.contains("aksa")) return "AKSA";
+                  String s = from == null ? "" : from.trim();
+                  return s.matches("[+0-9 ]+") ? "" : s;
+              }
+
+              static String typeOf(String provider, String t) {
+                  String p = BillFilter.norm(provider), n = BillFilter.norm(t);
+                  if (p.contains("turkcell") || p.contains("telekom")) return "diger";
+                  if (p.contains("igdas") || p.contains("dogalgaz") || n.contains("dogalgaz") || n.contains("dogal gaz")) return "dogalgaz";
+                  if (p.contains("iski") || p.contains("tiski") || p.contains("su ") || n.contains(" su faturasi") || n.contains("m3")) return "su";
+                  if (p.contains("ck") || p.contains("elektrik") || p.contains("enerjisa") || p.contains("bedas") || n.contains("elektrik") || n.contains("kwh")) return "elektrik";
+                  return "diger";
+              }
+
+              /* ---------------- SMS ---------------- */
+
+              /** SMS metnini çözer. Fatura/borç değilse null. */
+              public static Item sms(String from, String body) {
+                  if (body == null) return null;
+                  if (!BillFilter.isBill(from, body)) return null;
+                  return text(from, "", body);
+              }
+
+              /**
+               * Genel metin çözücü (SMS gövdesi ya da mail gövdesi). subject mail konusudur (SMS için boş).
+               */
+              public static Item text(String from, String subject, String body) {
+                  String t = (subject == null ? "" : subject + "\n") + body;
+                  String n = BillFilter.norm(t);
+                  Item it = new Item();
+                  it.provider = providerOf(from, t);
+                  it.type = typeOf(it.provider, t);
+                  it.link = firstLink(body);
+                  it.text = body.replaceAll("\\s+", " ").trim();
+                  if (it.text.length() > 300) it.text = it.text.substring(0, 300) + "…";
+
+                  // Abone / hesap / hat numarası
+                  String ab = find("(\\d{6,13})\\s*(?:nolu|no'lu|no’lu|numaral[ıi]|no\\b|nolu)", t);
+                  if (ab == null) ab = find("(?:hesap|abone|tesisat|s[öo]zle[şs]me(?: hesab[ıi])?)\\s*(?:no|numaras[ıi])?\\s*[:.]?\\s*(\\d{6,13})", t);
+                  if (ab == null && "Turkcell".equals(it.provider)) ab = find("(5\\d{9})\\s*Turkcell", t);
+                  if (ab == null && "Turkcell".equals(it.provider)) ab = find("\\b(5\\d{9})\\b", t);
+                  if (ab != null) it.aboneNo = ab;
+
+                  // Son ödeme tarihi
+                  String due = null;
+                  Matcher m = Pattern.compile("(\\d{1,2}\\s*[./-]\\s*\\d{1,2}\\s*[./-]\\s*\\d{4})\\s*(?:'?\\s*(?:dir|tir|d[ıi]r|t[ıi]r))?\\s*(?:son\\s*[öo]deme)", Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE).matcher(t);
+                  if (m.find()) due = m.group(1);
+                  if (due == null) due = find("son\\s*[öo]deme\\s*tarih[i]?\\s*[:]?\\s*(?:yar[ıi]n olan\\s*)?(\\d{1,2}\\s*[./-]\\s*\\d{1,2}\\s*[./-]\\s*\\d{4})", t);
+                  if (due == null) due = find("son\\s*[öo]deme\\s*tarihi\\s*(\\d{1,2}[./-]\\d{1,2}[./-]\\d{4})", t);
+                  if (due != null) it.dueDate = date(due);
+
+                  // Tutar: önce "ödenmesi gereken / ödenecek" tutarı
+                  String a = find("[öo]denmesi gereken fatura tutar[ıi]\\s*([\\d.,]+)\\s*TL", t);
+                  if (a == null) a = find("[öo]denecek tutar\\s*[:]?\\s*([\\d.,]+)\\s*TL", t);
+                  if (a == null) a = find("fatura tutar[ıi]\\s*[:]?\\s*([\\d.,]+)\\s*TL", t);
+                  if (a == null) a = find("son odeme tarihli\\s*([\\d.,]+)\\s*TL", t);
+                  if (a == null) a = find("([\\d.,]+)\\s*TL\\s*tutar[ıi]nda", t);
+                  if (a == null) a = find("toplam\\s*([\\d.,]+)\\s*(?:TL)?\\s*tutar", t);
+                  if (a == null) a = find("([\\d.,]+)\\s*TL'?lik faturalar", t);
+                  if (a == null) a = find("([\\d][\\d.,]*)\\s*(?:TL|TRY)\\b", t);
+                  if (a != null) it.amount = num(a);
+
+                  // Dönem
+                  Matcher pm = Pattern.compile("(\\d{4})\\s+(ocak|şubat|subat|mart|nisan|mayıs|mayis|haziran|temmuz|ağustos|agustos|eylül|eylul|ekim|kasım|kasim|aralık|aralik)\\s+d[öo]nemi", Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE).matcher(t);
+                  if (pm.find()) it.period = pm.group(1) + "-" + two(monthIdx(pm.group(2)) + 1);
+                  if (it.period.isEmpty()) {
+                      Matcher am = Pattern.compile("(ocak|şubat|subat|mart|nisan|mayıs|mayis|haziran|temmuz|ağustos|agustos|eylül|eylul|ekim|kasım|kasim|aralık|aralik)\\s+ay[ıi]na ait", Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE).matcher(t);
+                      if (am.find() && !it.dueDate.isEmpty()) {
+                          int mo = monthIdx(am.group(1)) + 1, y = Integer.parseInt(it.dueDate.substring(0, 4));
+                          if (mo > Integer.parseInt(it.dueDate.substring(5, 7))) y--;
+                          it.period = y + "-" + two(mo);
+                      }
+                  }
+
+                  // Tür: borç hatırlatması mı?
+                  boolean debt = n.contains("odenmemis") || n.contains("odenmedi") || n.contains("borcunuz bulunmaktadir")
+                          || n.contains("henuz odenmedigini") || n.contains("borc bilgilendirme") || n.contains("son odeme tarihi gecmis")
+                          || n.contains("faturaniz odenmemistir") || n.contains("faturanizin odenmedigini") || n.contains("adet fatura borcu")
+                          || n.contains("tarihi yarin olan");
+                  boolean bill = n.contains("faturaniz icin") || n.contains("fatura detay") || n.contains("faturanizin son odeme")
+                          || n.contains("odenmesi gereken fatura tutari") || n.contains("faturaniza ulasmak") || n.contains("faturaniz duzenlen")
+                          || n.contains("fatura tutari") || n.contains("donemi faturanizin") || n.contains("faturanizi goruntule");
+                  boolean strongDebt = n.contains("son odeme tarihi gecmis") || n.contains("henuz odenmedigini") || n.contains("faturaniz odenmemistir")
+                          || n.contains("faturanizin odenmedigini") || n.contains("borcunuz bulunmaktadir") || n.contains("adet fatura borcu");
+                  if (strongDebt) it.kind = "debt";
+                  else if (debt && !bill) it.kind = "debt";
+                  else if (!bill && it.amount < 0) it.kind = "info";
+                  else if (!bill) it.kind = debt ? "debt" : "bill";
+
+                  if ("bill".equals(it.kind)) {
+                      if (it.amount <= 0 || it.dueDate.isEmpty()) {
+                          // eksik bilgili fatura: bilgi olarak tut
+                          if (it.amount > 0 || !it.dueDate.isEmpty()) it.kind = "bill"; else it.kind = "info";
+                      }
+                      if (it.period.isEmpty() && !it.dueDate.isEmpty()) it.period = guessPeriod(it.dueDate);
+                  }
+                  if (n.contains("tuketim olmadigi icin") || n.contains("fatura kesilmedi")) { it.kind = "info"; it.amount = -1; }
+                  it.unit = "elektrik".equals(it.type) ? "kWh" : ("su".equals(it.type) || "dogalgaz".equals(it.type)) ? "m³" : "";
+                  return it;
+              }
+
+              static int monthIdx(String s) {
+                  String n = BillFilter.norm(s);
+                  for (int i = 0; i < 12; i++) if (n.startsWith(AYLAR[i].substring(0, 3))) return i;
+                  return 0;
+              }
+
+              /** Son ödeme tarihinden dönem tahmini: son ödeme ayın 10'undan önceyse önceki ay. */
+              static String guessPeriod(String due) {
+                  int y = Integer.parseInt(due.substring(0, 4)), m = Integer.parseInt(due.substring(5, 7)), d = Integer.parseInt(due.substring(8, 10));
+                  if (d < 10) { m--; if (m == 0) { m = 12; y--; } }
+                  return y + "-" + two(m);
+              }
+
+              /* ---------------- CK e-fatura UBL (XML) ---------------- */
+
+              /** CK UBL XML'inden fatura. Not alanları "Anahtar:Değer" biçimindedir. */
+              public static Item ubl(String xml) {
+                  Item it = new Item();
+                  it.provider = "CK Boğaziçi";
+                  it.type = "elektrik";
+                  it.unit = "kWh";
+                  java.util.Map<String, String> notes = new java.util.LinkedHashMap<>();
+                  Matcher m = Pattern.compile("<cbc:Note>([^<]*)</cbc:Note>").matcher(xml);
+                  while (m.find()) {
+                      String v = unesc(m.group(1));
+                      int i = v.indexOf(':');
+                      if (i > 0) notes.put(v.substring(0, i).trim(), v.substring(i + 1).trim());
+                  }
+                  it.aboneNo = val(notes, "Hesap No");
+                  String donem = val(notes, "Dönem");
+                  Matcher dm = Pattern.compile("(\\d{1,2})[-./](\\d{4})").matcher(donem);
+                  if (dm.find()) it.period = dm.group(2) + "-" + two(Integer.parseInt(dm.group(1)));
+                  String pay = find("<cbc:PayableAmount[^>]*>([\\d.]+)</cbc:PayableAmount>", xml);
+                  if (pay != null) it.amount = Double.parseDouble(pay);
+                  String due = find("<cbc:PaymentDueDate>([\\d-]+)</cbc:PaymentDueDate>", xml);
+                  if (due != null) it.dueDate = due;
+                  String cons = val(notes, "Aktif Tuketim");
+                  if (!cons.isEmpty()) it.consumption = Math.round(num(cons) * 10) / 10.0;
+                  // müşteri adresi: AccountingCustomerParty içindeki StreetName
+                  int ci = xml.indexOf("AccountingCustomerParty");
+                  if (ci > 0) { String st = find("<cbc:StreetName>([^<]*)</cbc:StreetName>", xml.substring(ci)); if (st != null) it.addr = unesc(st).trim(); }
+                  it.invNo = val(notes, "Fatura No");
+                  if (notes.containsKey("Gecikme Bilgi Notu")) {
+                      it.noPay = true;
+                      it.consumption = null;
+                      it.text = "Gecikme bedeli faturası — kurum \"ödeme yapmanıza gerek yoktur\" diyor.";
+                      return it;
+                  }
+                  java.util.Map<String, String> d = new java.util.LinkedHashMap<>();
+                  put(d, "meter", (val(notes, "Aktif Marka") + " " + val(notes, "Aktif SeriNo")).trim());
+                  put(d, "tariff", val(notes, "Abone Grubu"));
+                  put(d, "ckAbone", val(notes, "Abone No"));
+                  put(d, "installed", val(notes, "Kurulu Güç"));
+                  put(d, "contract", val(notes, "Sözleşme Gücü"));
+                  put(d, "firstRead", date(val(notes, "Ilk Okuma Tarihi")));
+                  put(d, "lastRead", date(val(notes, "Son Okuma Tarihi")));
+                  put(d, "days", val(notes, "Okuma Gün Farkı"));
+                  put(d, "nextRead", val(notes, "Sonraki Okuma Dönemi"));
+                  put(d, "startIdx", val(notes, "Aktif Ilk Endeks"));
+                  put(d, "endIdx", val(notes, "Aktif Son Endeks"));
+                  put(d, "dailyAvg", val(notes, "Ortalama Tüketim"));
+                  put(d, "yearCons", val(notes, "Mevcut Yıl Tüketim"));
+                  put(d, "prevYearCons", val(notes, "Önceki Yıl Tüketim"));
+                  put(d, "day", val(notes, "Gündüz Tüketim"));
+                  put(d, "peak", val(notes, "Puant Tüketim"));
+                  put(d, "night", val(notes, "Gece Tüketim"));
+                  put(d, "oldDebt", val(notes, "Eski Borç"));
+                  it.det = d;
+                  return it;
+              }
+
+              static void put(java.util.Map<String, String> d, String k, String v) { if (v != null && !v.isEmpty()) d.put(k, v); }
+
+              static String val(java.util.Map<String, String> notes, String key) {
+                  String v = notes.get(key);
+                  if (v == null) {
+                      String kn = BillFilter.norm(key);
+                      for (java.util.Map.Entry<String, String> e : notes.entrySet()) if (BillFilter.norm(e.getKey()).equals(kn)) { v = e.getValue(); break; }
+                  }
+                  return v == null ? "" : v;
+              }
+
+              static String unesc(String s) {
+                  return s.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'");
+              }
+
+              /** Birden fazla SMS içeren "Fatura SMS Özeti" mailini parçalara böler. */
+              public static List<String[]> splitDigest(String body) {
+                  List<String[]> out = new ArrayList<>();
+                  String[] parts = body.split("=====\\s*SMS \\d+/\\d+\\s*=====");
+                  for (int i = 1; i < parts.length; i++) {
+                      String p = parts[i];
+                      String from = find("G[öo]nderen:\\s*(.+)", p);
+                      String b = p.replaceFirst("(?s).*?SMS tarihi:[^\\n]*\\n", "").trim();
+                      out.add(new String[]{from == null ? "" : from.trim(), b});
+                  }
+                  return out;
+              }
+          }
+          FATURA_EOF
+          mkdir -p 'app/src/main/java/com/altintas/faturasms'
           cat > 'app/src/main/java/com/altintas/faturasms/Sms.java' <<'FATURA_EOF'
           package com.altintas.faturasms;
 
@@ -829,7 +1678,7 @@ jobs:
           import java.util.List;
           import java.util.Map;
 
-          /** Yeni gelen SMS'leri yakalar, fatura ise özet kuyruğuna ekler. */
+          /** Yeni gelen SMS'leri yakalar; fatura ise telefondaki kayda ekler ve bildirim gösterir. */
           public class SmsReceiver extends BroadcastReceiver {
               @Override
               public void onReceive(final Context context, Intent intent) {
@@ -865,8 +1714,9 @@ jobs:
                       @Override
                       public void run() {
                           try {
-                              Forwarder.collect(context, list);
-                              Forwarder.sendDigest(context, false);
+                              java.util.List<org.json.JSONObject> added = new java.util.ArrayList<>();
+                              for (Sms s : list) { org.json.JSONObject b = Sync.oneSms(context, s); if (b != null) added.add(b); }
+                              if (!added.isEmpty()) Notifier.newBills(context, new BillStore(context).load(), added);
                           } catch (Throwable ignored) {
                           } finally {
                               pr.finish();
@@ -1084,6 +1934,296 @@ jobs:
           }
           FATURA_EOF
           mkdir -p 'app/src/main/java/com/altintas/faturasms'
+          cat > 'app/src/main/java/com/altintas/faturasms/Sync.java' <<'FATURA_EOF'
+          package com.altintas.faturasms;
+
+          import android.content.Context;
+
+          import org.json.JSONObject;
+
+          import java.io.ByteArrayOutputStream;
+          import java.io.InputStream;
+          import java.nio.charset.StandardCharsets;
+          import java.util.ArrayList;
+          import java.util.Date;
+          import java.util.List;
+          import java.util.Properties;
+          import java.util.zip.ZipEntry;
+          import java.util.zip.ZipInputStream;
+
+          import javax.mail.Address;
+          import javax.mail.BodyPart;
+          import javax.mail.FetchProfile;
+          import javax.mail.Folder;
+          import javax.mail.Message;
+          import javax.mail.Multipart;
+          import javax.mail.Part;
+          import javax.mail.Session;
+          import javax.mail.Store;
+          import javax.mail.internet.InternetAddress;
+          import javax.mail.search.AndTerm;
+          import javax.mail.search.ComparisonTerm;
+          import javax.mail.search.FromStringTerm;
+          import javax.mail.search.OrTerm;
+          import javax.mail.search.ReceivedDateTerm;
+          import javax.mail.search.SearchTerm;
+          import javax.mail.search.SubjectTerm;
+
+          /** Telefondaki SMS'leri ve Gmail'deki fatura maillerini okuyup yerel kayda ekler. Ana iş parçacığında çağrılmamalı. */
+          public final class Sync {
+              private Sync() {}
+
+              public static class Result {
+                  public int newBills, sms, mails;
+                  public String error;
+                  public List<JSONObject> added = new ArrayList<>();
+              }
+
+              private static final Object RUN = new Object();
+
+              /** SMS + Gmail. */
+              public static Result all(Context ctx) {
+                  synchronized (RUN) {
+                      Result r = new Result();
+                      BillStore bs = new BillStore(ctx);
+                      JSONObject o = bs.load();
+                      try { sms(ctx, o, r); } catch (Exception e) { r.error = "SMS okunamadı"; }
+                      bs.save(o);
+                      try { mail(ctx, o, r); } catch (Exception e) { r.error = mailError(e); new com.altintas.faturasms.Store(ctx).log("Gmail: " + r.error); }
+                      bs.save(o);
+                      new com.altintas.faturasms.Store(ctx).log("Yenilendi: " + r.newBills + " yeni fatura (" + r.sms + " SMS, " + r.mails + " mail tarandı)"
+                              + (r.error != null ? " · " + r.error : ""));
+                      return r;
+                  }
+              }
+
+              static String mailError(Exception e) {
+                  String m = String.valueOf(e.getMessage());
+                  if (e instanceof javax.mail.AuthenticationFailedException || m.contains("AUTHENTICATIONFAILED") || m.contains("Invalid credentials"))
+                      return "Gmail şifreyi kabul etmedi (16 haneli uygulama şifresi gerekli)";
+                  if (e instanceof java.net.UnknownHostException || m.contains("UnknownHost") || m.contains("connect"))
+                      return "İnternet yok, Gmail'e ulaşılamadı";
+                  return "Gmail okunamadı: " + m;
+              }
+
+              /* ---------------- SMS ---------------- */
+
+              static void sms(Context ctx, JSONObject o, Result r) {
+                  long since = o.optLong("smsSince", 0);
+                  int days = since == 0 ? 200 : (int) Math.max(1, (System.currentTimeMillis() - since) / 86400000L + 2);
+                  List<Sms> list = Forwarder.readInbox(ctx, days);
+                  for (Sms s : list) {
+                      String key = "s:" + s.key();
+                      if (BillStore.seen(o, key)) continue;
+                      BillStore.markSeen(o, key);
+                      r.sms++;
+                      JSONObject b = BillStore.add(o, Parser.sms(s.from, s.body), key, s.date, "sms");
+                      if (b != null) { r.newBills++; r.added.add(b); }
+                  }
+                  try { o.put("smsSince", System.currentTimeMillis()); } catch (Exception ignored) {}
+              }
+
+              /** Yeni gelen tek bir SMS (SmsReceiver). Yeni fatura eklendiyse onu döndürür. */
+              public static JSONObject oneSms(Context ctx, Sms s) {
+                  synchronized (RUN) {
+                      BillStore bs = new BillStore(ctx);
+                      JSONObject o = bs.load();
+                      String key = "s:" + s.key();
+                      if (BillStore.seen(o, key)) return null;
+                      BillStore.markSeen(o, key);
+                      JSONObject b = BillStore.add(o, Parser.sms(s.from, s.body), key, s.date, "sms");
+                      bs.save(o);
+                      return b;
+                  }
+              }
+
+              /* ---------------- Gmail (IMAP) ---------------- */
+
+              static final String[] SENDERS = {"ckbogazici", "ckenerji", "igdas", "aksa", "iski", "tiski", "enerjisa", "turkcell",
+                      "turktelekom", "bedas", "qnbesolutions"};
+
+              static void mail(Context ctx, JSONObject o, Result r) throws Exception {
+                  com.altintas.faturasms.Store st = new com.altintas.faturasms.Store(ctx);
+                  if (!st.configured()) return;
+                  Properties p = new Properties();
+                  p.put("mail.store.protocol", "imaps");
+                  p.put("mail.imaps.host", "imap.gmail.com");
+                  p.put("mail.imaps.port", "993");
+                  p.put("mail.imaps.ssl.enable", "true");
+                  p.put("mail.imaps.connectiontimeout", "20000");
+                  p.put("mail.imaps.timeout", "40000");
+                  Session session = Session.getInstance(p);
+                  Store store = session.getStore("imaps");
+                  store.connect("imap.gmail.com", st.email(), st.pass());
+                  try {
+                      Folder f = allMail(store);
+                      f.open(Folder.READ_ONLY);
+                      long since = o.optLong("mailSince", 0);
+                      Date from = new Date(since == 0 ? System.currentTimeMillis() - 200L * 86400000L : since - 3L * 86400000L);
+                      List<SearchTerm> ors = new ArrayList<>();
+                      for (String s : SENDERS) ors.add(new FromStringTerm(s));
+                      ors.add(new SubjectTerm("Fatura"));
+                      ors.add(new SubjectTerm("Borç"));
+                      SearchTerm term = new AndTerm(new ReceivedDateTerm(ComparisonTerm.GE, from), new OrTerm(ors.toArray(new SearchTerm[0])));
+                      Message[] msgs = f.search(term);
+                      FetchProfile fp = new FetchProfile();
+                      fp.add(FetchProfile.Item.ENVELOPE);
+                      fp.add("Message-ID");
+                      f.fetch(msgs, fp);
+                      for (Message m : msgs) {
+                          String mid = header(m, "Message-ID");
+                          Date rd = m.getReceivedDate() != null ? m.getReceivedDate() : m.getSentDate();
+                          long date = rd == null ? System.currentTimeMillis() : rd.getTime();
+                          String key = "m:" + (mid != null ? mid : (m.getSubject() + date));
+                          if (BillStore.seen(o, key)) continue;
+                          BillStore.markSeen(o, key);
+                          r.mails++;
+                          try { handle(o, m, key, date, r); } catch (Exception ignored) {}
+                      }
+                      f.close(false);
+                      o.put("mailSince", System.currentTimeMillis());
+                  } finally {
+                      try { store.close(); } catch (Exception ignored) {}
+                  }
+              }
+
+              /** Gmail'in "Tüm Postalar" klasörü (dile göre adı değişir; \All özelliğinden bulunur). */
+              static Folder allMail(Store store) throws Exception {
+                  try {
+                      for (Folder f : store.getDefaultFolder().list("*")) {
+                          if (f instanceof com.sun.mail.imap.IMAPFolder) {
+                              for (String a : ((com.sun.mail.imap.IMAPFolder) f).getAttributes()) if ("\\All".equalsIgnoreCase(a)) return f;
+                          }
+                      }
+                  } catch (Exception ignored) {}
+                  return store.getFolder("INBOX");
+              }
+
+              static String header(Message m, String h) {
+                  try { String[] v = m.getHeader(h); return v != null && v.length > 0 ? v[0] : null; } catch (Exception e) { return null; }
+              }
+
+              static void handle(JSONObject o, Message m, String key, long date, Result r) throws Exception {
+                  String subject = m.getSubject() == null ? "" : m.getSubject();
+                  String from = "";
+                  Address[] fa = m.getFrom();
+                  if (fa != null && fa.length > 0) from = fa[0] instanceof InternetAddress ? ((InternetAddress) fa[0]).getAddress() : fa[0].toString();
+                  Body body = new Body();
+                  collect(m, body);
+                  String text = body.plain.length() > 0 ? body.plain.toString() : stripHtml(body.html.toString());
+
+                  // Eski uygulamanın ilettiği SMS'ler (tekil ya da özet)
+                  if (subject.startsWith("Fatura SMS")) {
+                      if (text.contains("===== SMS")) {
+                          int k = 0;
+                          for (String[] s : Parser.splitDigest(text)) {
+                              JSONObject b = BillStore.add(o, Parser.sms(s[0], s[1]), key + "#" + (k++), date, "sms");
+                              if (b != null) { r.newBills++; r.added.add(b); }
+                          }
+                      } else {
+                          String sf = Parser.find("G[öo]nderen:\\s*(.+)", text);
+                          String sb = text.replaceFirst("(?s).*?SMS tarihi:[^\\n]*\\n", "").trim();
+                          JSONObject b = BillStore.add(o, Parser.sms(sf == null ? "" : sf.trim(), sb), key, date, "sms");
+                          if (b != null) { r.newBills++; r.added.add(b); }
+                      }
+                      return;
+                  }
+                  // CK e-fatura: UBL ekinden ayrıntılı bilgi
+                  Parser.Item it = null;
+                  for (byte[] z : body.zips) {
+                      String xml = xmlFromZip(z);
+                      if (xml != null) { it = Parser.ubl(xml); break; }
+                  }
+                  if (it == null) {
+                      it = Parser.text(from, subject, text);
+                      if (it == null || it.provider.isEmpty() || !known(from)) return; // tanınmayan gönderen (banka vb.)
+                  } else {
+                      Parser.Item t2 = Parser.text(from, subject, text);
+                      if (t2 != null && it.link.isEmpty()) it.link = t2.link;
+                  }
+                  JSONObject b = BillStore.add(o, it, key, date, "mail");
+                  if (b != null) { r.newBills++; r.added.add(b); }
+              }
+
+              static boolean known(String from) {
+                  String f = from.toLowerCase(java.util.Locale.ROOT);
+                  for (String s : SENDERS) if (f.contains(s)) return true;
+                  return false;
+              }
+
+              static final class Body {
+                  StringBuilder plain = new StringBuilder(), html = new StringBuilder();
+                  List<byte[]> zips = new ArrayList<>();
+              }
+
+              static void collect(Part p, Body b) throws Exception {
+                  String fn = p.getFileName();
+                  if (p.isMimeType("multipart/*")) {
+                      Multipart mp = (Multipart) p.getContent();
+                      for (int i = 0; i < mp.getCount(); i++) collect(mp.getBodyPart(i), b);
+                  } else if (fn != null && fn.toLowerCase(java.util.Locale.ROOT).endsWith(".zip")) {
+                      if (p.getSize() < 5_000_000) b.zips.add(read(p.getInputStream()));
+                  } else if (fn == null && p.isMimeType("text/plain")) {
+                      b.plain.append(String.valueOf(p.getContent())).append('\n');
+                  } else if (fn == null && p.isMimeType("text/html")) {
+                      b.html.append(String.valueOf(p.getContent())).append('\n');
+                  } else if (p instanceof BodyPart && p.isMimeType("message/rfc822")) {
+                      // iletilmiş mail: atla
+                  }
+              }
+
+              static byte[] read(InputStream in) throws Exception {
+                  ByteArrayOutputStream o = new ByteArrayOutputStream();
+                  byte[] buf = new byte[16384];
+                  int n;
+                  while ((n = in.read(buf)) > 0) o.write(buf, 0, n);
+                  in.close();
+                  return o.toByteArray();
+              }
+
+              static String xmlFromZip(byte[] z) {
+                  try {
+                      ZipInputStream zin = new ZipInputStream(new java.io.ByteArrayInputStream(z));
+                      ZipEntry e;
+                      while ((e = zin.getNextEntry()) != null) {
+                          if (e.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".xml")) {
+                              String x = new String(read(zin), StandardCharsets.UTF_8);
+                              if (x.contains("cbc:Note")) return x;
+                              return x;
+                          }
+                      }
+                  } catch (Exception ignored) {}
+                  return null;
+              }
+
+              static String stripHtml(String h) {
+                  return h.replaceAll("(?is)<(script|style)[^>]*>.*?</\\1>", " ")
+                          .replaceAll("(?i)<br\\s*/?>|</p>|</div>|</tr>", "\n")
+                          .replaceAll("(?is)<a[^>]*href=\"([^\"]+)\"[^>]*>", " $1 ")
+                          .replaceAll("<[^>]+>", " ")
+                          .replace("&nbsp;", " ").replace("&amp;", "&").replace("&quot;", "\"")
+                          .replaceAll("&#(\\d+);", " ")
+                          .replaceAll("[ \\t]+", " ");
+              }
+
+              /** Ayar ekranındaki "Bağlantıyı test et" için. */
+              public static String testLogin(Context ctx) {
+                  com.altintas.faturasms.Store st = new com.altintas.faturasms.Store(ctx);
+                  try {
+                      Properties p = new Properties();
+                      p.put("mail.imaps.connectiontimeout", "20000");
+                      p.put("mail.imaps.timeout", "20000");
+                      Store store = Session.getInstance(p).getStore("imaps");
+                      store.connect("imap.gmail.com", st.email(), st.pass());
+                      store.close();
+                      return null;
+                  } catch (Exception e) {
+                      return mailError(e);
+                  }
+              }
+          }
+          FATURA_EOF
+          mkdir -p 'app/src/main/java/com/altintas/faturasms'
           cat > 'app/src/main/java/com/altintas/faturasms/Updater.java' <<'FATURA_EOF'
           package com.altintas.faturasms;
 
@@ -1231,6 +2371,124 @@ jobs:
                   while ((n = in.read(buf)) > 0) b.write(buf, 0, n);
                   in.close();
                   return b.toByteArray();
+              }
+          }
+          FATURA_EOF
+          mkdir -p 'app/src/main/java/com/altintas/faturasms'
+          cat > 'app/src/main/java/com/altintas/faturasms/WebActivity.java' <<'FATURA_EOF'
+          package com.altintas.faturasms;
+
+          import android.Manifest;
+          import android.app.Activity;
+          import android.content.Intent;
+          import android.content.pm.PackageManager;
+          import android.graphics.Color;
+          import android.net.Uri;
+          import android.os.Build;
+          import android.os.Bundle;
+          import android.webkit.JavascriptInterface;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+
+          import org.json.JSONObject;
+
+          /** Ana ekran: kartlı fatura görünümü (assets/index.html), veriler telefondaki kayıttan gelir. */
+          public class WebActivity extends Activity {
+              private WebView web;
+              private boolean syncing;
+
+              @Override
+              protected void onCreate(Bundle b) {
+                  super.onCreate(b);
+                  Store st = new Store(this);
+                  DigestReceiver.arm(this);
+                  if (!hasSms() || !st.configured()) {
+                      // İlk kurulum: önce ayarlar
+                      startActivity(new Intent(this, MainActivity.class).putExtra("settings", true).putExtra("first", true));
+                  }
+                  getWindow().setStatusBarColor(Color.parseColor("#D9F2FB"));
+                  getWindow().getDecorView().setSystemUiVisibility(android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
+                  web = new WebView(this);
+                  WebSettings ws = web.getSettings();
+                  ws.setJavaScriptEnabled(true);
+                  ws.setDomStorageEnabled(true);
+                  ws.setAllowFileAccess(false);
+                  web.setWebChromeClient(new WebChromeClient());
+                  web.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public boolean shouldOverrideUrlLoading(WebView v, android.webkit.WebResourceRequest req) {
+                          openUrl(req.getUrl().toString());
+                          return true;
+                      }
+                  });
+                  web.addJavascriptInterface(new Bridge(), "Android");
+                  web.loadUrl("file:///android_asset/index.html");
+                  setContentView(web);
+                  if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+                      requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 5);
+              }
+
+              @Override
+              protected void onResume() {
+                  super.onResume();
+                  if (web != null) web.evaluateJavascript("window.reload&&reload()", null);
+                  // Açılışta arka planda yenile (SMS + Gmail)
+                  if (hasSms()) startSync(false);
+              }
+
+              @Override
+              public void onBackPressed() {
+                  if (web != null) {
+                      web.evaluateJavascript("window.back?back():false", v -> { if (!"true".equals(v)) WebActivity.super.onBackPressed(); });
+                  } else super.onBackPressed();
+              }
+
+              private boolean hasSms() {
+                  return checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED;
+              }
+
+              private void openUrl(String u) {
+                  try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(u))); } catch (Exception ignored) {}
+              }
+
+              private void js(final String code) {
+                  runOnUiThread(() -> { if (web != null) web.evaluateJavascript(code, null); });
+              }
+
+              private synchronized void startSync(final boolean manual) {
+                  if (syncing) return;
+                  syncing = true;
+                  js("window.syncState&&syncState(true)");
+                  new Thread(() -> {
+                      String msg;
+                      try {
+                          Sync.Result r = Sync.all(WebActivity.this);
+                          msg = r.error != null ? r.error : (r.newBills > 0 ? r.newBills + " yeni fatura eklendi" : (manual ? "Yeni fatura yok" : ""));
+                          if (!r.added.isEmpty()) Notifier.newBills(WebActivity.this, new BillStore(WebActivity.this).load(), r.added);
+                          Notifier.dueCheck(WebActivity.this, false);
+                      } catch (Throwable t) {
+                          msg = "Yenilenemedi";
+                      }
+                      syncing = false;
+                      js("window.syncState&&syncState(false," + JSONObject.quote(msg) + ");window.reload&&reload()");
+                  }).start();
+              }
+
+              /** Sayfadaki JavaScript'in çağırdığı köprü. */
+              public class Bridge {
+                  @JavascriptInterface public String data() { return new BillStore(WebActivity.this).load().toString(); }
+                  @JavascriptInterface public void setPaid(String id, boolean paid) { new BillStore(WebActivity.this).setPaid(id, paid); }
+                  @JavascriptInterface public void rename(String key, String name) { new BillStore(WebActivity.this).rename(key, name); }
+                  @JavascriptInterface public void setSub(String key, String state) { new BillStore(WebActivity.this).setSub(key, state); }
+                  @JavascriptInterface public void deleteBill(String id) { new BillStore(WebActivity.this).deleteBill(id); }
+                  @JavascriptInterface public void sync() { startSync(true); }
+                  @JavascriptInterface public void open(String url) { openUrl(url); }
+                  @JavascriptInterface public void settings() {
+                      startActivity(new Intent(WebActivity.this, MainActivity.class).putExtra("settings", true));
+                  }
+                  @JavascriptInterface public String version() { return Updater.installedName(WebActivity.this); }
               }
           }
           FATURA_EOF
