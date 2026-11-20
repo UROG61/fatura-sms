@@ -402,7 +402,7 @@ jobs:
                   root.addView(label("Güncelleme"));
                   updText = text("Sürüm " + Updater.installedName(this), 13, false);
                   root.addView(updText);
-                  updBtn = button("Güncellemeleri kontrol et");
+                  updBtn = button("Güncelle");
                   updBtn.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { onUpdateClick(); } });
                   root.addView(updBtn);
 
@@ -422,7 +422,7 @@ jobs:
                   refresh();
                   // Bekleyen kuyruk varsa tekrar dene
                   if (store.configured() && !store.queue().isEmpty()) runForward(new ArrayList<Sms>(), "Bekleyen SMS'ler gönderiliyor…");
-                  if (!checkedUpdate) { checkedUpdate = true; checkUpdate(false); }
+
               }
 
               /* ---- güncelleme ---- */
@@ -432,7 +432,7 @@ jobs:
 
               private void checkUpdate(final boolean manual) {
                   updBtn.setEnabled(false);
-                  if (manual) updText.setText("Kontrol ediliyor…");
+                  if (manual) updText.setText("Yeni sürüm aranıyor…");
                   new Thread(new Runnable() {
                       public void run() {
                           String msg;
@@ -451,7 +451,7 @@ jobs:
                               public void run() {
                                   pending = rr;
                                   updText.setText(m);
-                                  updBtn.setText(rr != null ? "Yeni sürümü indir ve kur" : "Güncellemeleri kontrol et");
+                                  updBtn.setText("Güncelle"); if (rr != null && manual) installUpdate();
                                   updBtn.setEnabled(true);
                               }
                           });
