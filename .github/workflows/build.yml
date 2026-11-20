@@ -267,6 +267,7 @@ jobs:
           .hero .row{align-items:center}.hero a{text-decoration:none}
           body{-webkit-tap-highlight-color:transparent;overscroll-behavior-y:contain}
           .wrap{padding-bottom:100px}
+          .syncbtn{border:0;background:rgba(255,255,255,.75);color:#0e7490;font-weight:700;font-size:15px;padding:10px 16px;border-radius:99px;box-shadow:0 2px 8px rgba(0,0,0,.08)}.syncbtn:disabled{opacity:1;color:#64748b}
           </style>
           </head>
           <body>
@@ -292,9 +293,12 @@ jobs:
 
           function load(){try{D=JSON.parse(A?A.data():"{}")}catch(e){D={}}D.bills=D.bills||[];D.notices=D.notices||[];D.subState=D.subState||{};D.names=D.names||{}}
           window.reload=function(){load();render()};
-          window.syncState=function(on,msg){ui.syncing=on;if(msg!=null)ui.msg=msg;var el=document.getElementById("sync");if(el)el.innerHTML=syncHtml();if(!on&&msg){setTimeout(function(){ui.msg="";var e=document.getElementById("sync");if(e)e.innerHTML=syncHtml()},5000)}};
+          window.syncState=function(on,msg){ui.syncing=on;if(msg!=null)ui.msg=msg;paintSync();if(on)poll()};
+          function paintSync(){var el=document.getElementById("sync");if(el)el.innerHTML=syncHtml();var l=document.getElementById("lastsync");if(l)l.innerHTML=lastHtml()}
+          var pollT=null;function poll(){if(pollT||!A||!A.status)return;pollT=setInterval(function(){var st={};try{st=JSON.parse(A.status())}catch(e){}if(!st.running){clearInterval(pollT);pollT=null;ui.syncing=false;ui.msg=st.msg||"";load();render()}},1500)}
+          function lastHtml(){var st={};try{st=JSON.parse(A&&A.status?A.status():"{}")}catch(e){}if(!st.at)return"";var d=new Date(st.at);return"Son yenileme "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0")+(st.msg?" · "+esc(st.msg):"")}
           window.back=function(){if(ui.tab!=="home"){ui.tab="home";render();return true}return false};
-          function syncHtml(){return ui.syncing?'<span class="spin"></span>Yenileniyor…':(ui.msg?esc(ui.msg):'<a href="#" data-a="sync" style="color:inherit">↻ Yenile</a>')}
+          function syncHtml(){return'<button class="syncbtn" data-a="sync"'+(ui.syncing?' disabled':'')+'>'+(ui.syncing?'<span class="spin"></span>Yenileniyor…':'↻ Yenile')+'</button>'}
 
           function subs(){
             var G={};D.bills.forEach(function(b){var k=subKey(b);(G[k]=G[k]||[]).push(b)});
@@ -320,7 +324,7 @@ jobs:
             S.sort(function(a,b){return(b.open.length>0)-(a.open.length>0)||(b.debt-a.debt)});
             var tot=S.reduce(function(s,x){return s+x.debt},0),cnt=S.reduce(function(s,x){return s+x.open.length},0);
             var soon=S.reduce(function(s,x){return s+x.open.filter(function(b){var d=days(b.dueDate);return d!=null&&d<=7}).reduce(function(t,b){return t+b.amount},0)},0);
-            var h='<div class="hero"><div class="row"><h2>Faturalarım</h2><span class="sub" id="sync">'+syncHtml()+'</span></div><div class="sub" style="margin-top:4px">'+(cnt?cnt+' ödenmemiş fatura · <b>'+tl(tot)+'</b>':(D.bills.length?'Ödenmemiş fatura görünmüyor 🎉':'Henüz fatura yok'))+'</div></div>';
+            var h='<div class="hero"><div class="row"><h2>Faturalarım</h2><span class="sub" id="sync">'+syncHtml()+'</span></div><div class="sub" id="lastsync" style="font-size:12px;margin-top:2px">'+lastHtml()+'</div><div class="sub" style="margin-top:4px">'+(cnt?cnt+' ödenmemiş fatura · <b>'+tl(tot)+'</b>':(D.bills.length?'Ödenmemiş fatura görünmüyor 🎉':'Henüz fatura yok'))+'</div></div>';
             if(!S.length)return h+'<div class="empty" style="margin-top:30px">Faturalar SMS ve Gmail\'den okunuyor.<br><br>Hiç gelmediyse <a href="#" data-a="settings">Ayarlar</a>\'dan Gmail bilgilerini kontrol et ve "Faturaları şimdi yenile"ye bas.</div>';
             if(ui.homeIdx>=S.length)ui.homeIdx=0;
             var opts=S.map(function(x,i){return'<option value="'+i+'">'+esc(x.name+(x.no?" · "+x.no:""))+'</option>'}).join("");
@@ -409,7 +413,7 @@ jobs:
             var el=e.target.closest("[data-a]");if(!el)return;e.preventDefault();var a=el.dataset.a;
             if(a==="tab"){ui.tab=el.dataset.t;render();window.scrollTo(0,0)}
             else if(a==="settings"){A&&A.settings()}
-            else if(a==="sync"){A&&A.sync()}
+            else if(a==="sync"){if(ui.syncing)return;ui.syncing=true;ui.msg="";paintSync();A&&A.sync();poll()}
             else if(a==="hpick"){ui.homeSel[el.dataset.k]=el.dataset.id;render()}
             else if(a==="gosub"){ui.tab="subs";ui.openSub=el.dataset.k;render();setTimeout(function(){var c=document.getElementById("s_"+el.dataset.k);if(c)c.scrollIntoView({block:"start"})},30)}
             else if(a==="paid"){A&&A.setPaid(el.dataset.id,el.dataset.v==="1");reload()}
@@ -2073,9 +2077,11 @@ jobs:
                           msgs = f.search(new AndTerm(new ReceivedDateTerm(ComparisonTerm.GE, from), new OrTerm(ors.toArray(new SearchTerm[0]))));
                       } catch (Exception se) {
                           // Sunucu karmaşık aramayı kabul etmezse: tarihe göre al, burada süz
-                          msgs = f.search(new ReceivedDateTerm(ComparisonTerm.GE, from));
+                          msgs = f.search(new ReceivedDateTerm(ComparisonTerm.GE, new Date(Math.max(from.getTime(), System.currentTimeMillis() - 60L * 86400000L))));
                           filterLocal = true;
                       }
+                      // Çok fazla mail varsa en yeni 400 tanesine bak (ilk tarama takılmasın)
+                      if (msgs.length > 400) msgs = java.util.Arrays.copyOfRange(msgs, msgs.length - 400, msgs.length);
                       f.fetch(msgs, fp);
                       for (Message m : msgs) {
                           if (filterLocal && !wanted(m)) continue;
@@ -2415,7 +2421,8 @@ jobs:
           /** Ana ekran: kartlı fatura görünümü (assets/index.html), veriler telefondaki kayıttan gelir. */
           public class WebActivity extends Activity {
               private WebView web;
-              private boolean syncing;
+              static volatile boolean running;
+              static volatile long startedAt;
 
               @Override
               protected void onCreate(Bundle b) {
@@ -2476,8 +2483,13 @@ jobs:
               }
 
               private synchronized void startSync(final boolean manual) {
-                  if (syncing) return;
-                  syncing = true;
+                  // Takılı kalmış eski bir yenileme 4 dakikadan uzun sürdüyse yok say
+                  if (running && System.currentTimeMillis() - startedAt < 240000) {
+                      if (manual) js("window.syncState&&syncState(true,'Zaten yenileniyor…')");
+                      return;
+                  }
+                  running = true;
+                  startedAt = System.currentTimeMillis();
                   js("window.syncState&&syncState(true)");
                   new Thread(() -> {
                       String msg;
@@ -2489,7 +2501,9 @@ jobs:
                       } catch (Throwable t) {
                           msg = "Yenilenemedi";
                       }
-                      syncing = false;
+                      running = false;
+                      getSharedPreferences("faturasms", MODE_PRIVATE).edit()
+                              .putLong("lastSyncAt", System.currentTimeMillis()).putString("lastSyncMsg", msg).apply();
                       js("window.syncState&&syncState(false," + JSONObject.quote(msg) + ");window.reload&&reload()");
                   }).start();
               }
@@ -2505,6 +2519,16 @@ jobs:
                   @JavascriptInterface public void open(String url) { openUrl(url); }
                   @JavascriptInterface public void settings() {
                       startActivity(new Intent(WebActivity.this, MainActivity.class).putExtra("settings", true));
+                  }
+                  @JavascriptInterface public String status() {
+                      android.content.SharedPreferences sp = getSharedPreferences("faturasms", MODE_PRIVATE);
+                      try {
+                          JSONObject o = new JSONObject();
+                          o.put("running", running);
+                          o.put("at", sp.getLong("lastSyncAt", 0));
+                          o.put("msg", sp.getString("lastSyncMsg", ""));
+                          return o.toString();
+                      } catch (Exception e) { return "{}"; }
                   }
                   @JavascriptInterface public String version() { return Updater.installedName(WebActivity.this); }
               }
