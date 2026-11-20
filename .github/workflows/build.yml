@@ -2063,14 +2063,22 @@ jobs:
                       List<SearchTerm> ors = new ArrayList<>();
                       for (String s : SENDERS) ors.add(new FromStringTerm(s));
                       ors.add(new SubjectTerm("Fatura"));
-                      ors.add(new SubjectTerm("Borç"));
-                      SearchTerm term = new AndTerm(new ReceivedDateTerm(ComparisonTerm.GE, from), new OrTerm(ors.toArray(new SearchTerm[0])));
-                      Message[] msgs = f.search(term);
+                      ors.add(new SubjectTerm("Bilgilendirme"));
                       FetchProfile fp = new FetchProfile();
                       fp.add(FetchProfile.Item.ENVELOPE);
                       fp.add("Message-ID");
+                      Message[] msgs;
+                      boolean filterLocal = false;
+                      try {
+                          msgs = f.search(new AndTerm(new ReceivedDateTerm(ComparisonTerm.GE, from), new OrTerm(ors.toArray(new SearchTerm[0]))));
+                      } catch (Exception se) {
+                          // Sunucu karmaşık aramayı kabul etmezse: tarihe göre al, burada süz
+                          msgs = f.search(new ReceivedDateTerm(ComparisonTerm.GE, from));
+                          filterLocal = true;
+                      }
                       f.fetch(msgs, fp);
                       for (Message m : msgs) {
+                          if (filterLocal && !wanted(m)) continue;
                           String mid = header(m, "Message-ID");
                           Date rd = m.getReceivedDate() != null ? m.getReceivedDate() : m.getSentDate();
                           long date = rd == null ? System.currentTimeMillis() : rd.getTime();
@@ -2143,6 +2151,16 @@ jobs:
                   }
                   JSONObject b = BillStore.add(o, it, key, date, "mail");
                   if (b != null) { r.newBills++; r.added.add(b); }
+              }
+
+              static boolean wanted(Message m) {
+                  try {
+                      String subj = m.getSubject() == null ? "" : m.getSubject().toLowerCase(java.util.Locale.ROOT);
+                      if (subj.contains("fatura") || subj.contains("borç") || subj.contains("borc")) return true;
+                      Address[] fa = m.getFrom();
+                      String from = fa != null && fa.length > 0 ? fa[0].toString() : "";
+                      return known(from);
+                  } catch (Exception e) { return false; }
               }
 
               static boolean known(String from) {
