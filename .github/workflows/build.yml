@@ -79,6 +79,7 @@ jobs:
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
               <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+              <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
               <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
@@ -103,6 +104,14 @@ jobs:
                       android:permission="android.permission.BROADCAST_SMS">
                       <intent-filter android:priority="999">
                           <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+                      </intent-filter>
+                  </receiver>
+                  <receiver
+                      android:name=".DigestReceiver"
+                      android:exported="false">
+                      <intent-filter>
+                          <action android:name="android.intent.action.BOOT_COMPLETED" />
+                          <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
                       </intent-filter>
                   </receiver>
                   <receiver
@@ -138,6 +147,10 @@ jobs:
               private static final Pattern PRIVATE = Pattern.compile(
                       "(sifre|dogrulama|onay kodu|tek kullanimlik|\\botp\\b|parola|guvenlik kodu|giris kodu|kodunuz)");
 
+              // Fatura olmayan duyurular (kesinti, kampanya vb.)
+              private static final Pattern NOISE = Pattern.compile(
+                      "(su verilemeyecek|kesintisi|kesinti yapilacak|enerjilendirme|planli elektrik|sozlesme teklif|dijital faturaya gec|kagit tuketimini)");
+
               public static String norm(String s) {
                   if (s == null) return "";
                   StringBuilder b = new StringBuilder(s.length());
@@ -161,11 +174,48 @@ jobs:
               public static boolean isBill(String from, String body) {
                   String f = norm(from), t = norm(body);
                   if (PRIVATE.matcher(t).find()) return false;
+                  if (NOISE.matcher(t).find()) return false;
                   boolean content = CONTENT.matcher(t).find();
                   if (!content) return false;
                   boolean sender = SENDER.matcher(f).find() || SENDER.matcher(t).find();
                   boolean amount = AMOUNT.matcher(t).find();
                   return sender || (amount && t.contains("fatura"));
+              }
+          }
+          FATURA_EOF
+          mkdir -p 'app/src/main/java/com/altintas/faturasms'
+          cat > 'app/src/main/java/com/altintas/faturasms/DigestReceiver.java' <<'FATURA_EOF'
+          package com.altintas.faturasms;
+
+          import android.app.AlarmManager;
+          import android.app.PendingIntent;
+          import android.content.BroadcastReceiver;
+          import android.content.Context;
+          import android.content.Intent;
+
+          /** Günde birkaç kez uyanır; özet zamanı geldiyse tek mail gönderir. Telefon açılınca alarmı yeniden kurar. */
+          public class DigestReceiver extends BroadcastReceiver {
+              public static void arm(Context ctx) {
+                  AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
+                  if (am == null) return;
+                  Intent i = new Intent(ctx, DigestReceiver.class).setAction("com.altintas.faturasms.DIGEST");
+                  PendingIntent pi = PendingIntent.getBroadcast(ctx, 7, i, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+                  am.setInexactRepeating(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + 15 * 60000L,
+                          AlarmManager.INTERVAL_HOUR * 3, pi);
+              }
+
+              @Override
+              public void onReceive(final Context context, Intent intent) {
+                  if (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction()) || Intent.ACTION_MY_PACKAGE_REPLACED.equals(intent.getAction())) {
+                      arm(context);
+                      return;
+                  }
+                  final PendingResult pr = goAsync();
+                  new Thread(new Runnable() {
+                      public void run() {
+                          try { Forwarder.sendDigest(context, false); } catch (Throwable ignored) {} finally { pr.finish(); }
+                      }
+                  }).start();
               }
           }
           FATURA_EOF
@@ -181,70 +231,111 @@ jobs:
 
           import java.text.SimpleDateFormat;
           import java.util.ArrayList;
+          import java.util.Calendar;
+          import java.util.Collections;
+          import java.util.Comparator;
           import java.util.Date;
           import java.util.List;
           import java.util.Locale;
 
-          /** Fatura SMS'lerini Gmail'e iletir. Ağ işlemi yaptığı için ana iş parçacığında çağrılmamalı. */
+          /**
+           * Fatura SMS'lerini biriktirir ve seçilen günde tek bir özet maili olarak Gmail'e gönderir.
+           * Ağ işlemi yaptığı için ana iş parçacığında çağrılmamalı.
+           */
           public final class Forwarder {
               private Forwarder() {}
 
               public static final String HOST = "smtp.gmail.com";
               public static final int PORT = 465;
+              private static final int MAX_PER_MAIL = 40;
 
               public static class Result {
-                  public int found, sent, failed, skipped;
+                  public int found, added, sent, mails;
                   public String error;
               }
 
-              /** Yeni gelen veya taranan SMS'leri işler; önce bekleyen kuyruğu da dener. */
-              public static synchronized Result process(Context ctx, List<Sms> incoming) {
+              /** Fatura SMS'lerini özet kuyruğuna ekler. Mail göndermez. */
+              public static synchronized Result collect(Context ctx, List<Sms> incoming) {
                   Store st = new Store(ctx);
                   Result r = new Result();
-                  List<Sms> work = new ArrayList<>(st.queue());
-                  for (Sms s : incoming) if (BillFilter.isBill(s.from, s.body)) work.add(s);
-                  r.found = work.size();
-                  if (work.isEmpty()) return r;
-                  if (!st.configured()) {
-                      st.setQueue(dedupe(work, st));
-                      r.error = "Gmail adresi ve uygulama şifresi girilmemiş";
-                      st.log("Bekletildi: " + work.size() + " SMS (ayar eksik)");
-                      return r;
-                  }
-                  List<Sms> failed = new ArrayList<>();
-                  for (Sms s : dedupe(work, st)) {
-                      if (st.isSent(s.key())) { r.skipped++; continue; }
-                      try {
-                          Smtp.send(HOST, PORT, true, st.email(), st.pass(), st.email(), subject(s), body(s));
-                          st.markSent(s.key());
-                          r.sent++;
-                          st.log("Gönderildi: " + s.from + " — " + shorten(s.body));
-                      } catch (Smtp.SmtpException e) {
-                          failed.add(s); r.failed++;
-                          r.error = e.code == 535 || e.code == 534
-                                  ? "Gmail şifreyi kabul etmedi. Normal şifre değil, 16 haneli uygulama şifresi gerekli."
-                                  : "Gmail hatası (" + e.code + ")";
-                          st.log("Hata: " + r.error);
-                      } catch (Exception e) {
-                          failed.add(s); r.failed++;
-                          r.error = "İnternet yok veya Gmail'e ulaşılamadı";
-                          st.log("Hata: " + r.error + " — sonra tekrar denenecek");
-                      }
-                  }
-                  st.setQueue(failed);
-                  return r;
-              }
-
-              private static List<Sms> dedupe(List<Sms> in, Store st) {
-                  List<Sms> out = new ArrayList<>();
+                  List<Sms> q = st.queue();
                   List<String> keys = new ArrayList<>();
-                  for (Sms s : in) {
+                  for (Sms s : q) keys.add(s.key());
+                  for (Sms s : incoming) {
+                      if (!BillFilter.isBill(s.from, s.body)) continue;
+                      r.found++;
                       String k = s.key();
                       if (keys.contains(k) || st.isSent(k)) continue;
                       keys.add(k);
-                      out.add(s);
+                      q.add(s);
+                      r.added++;
                   }
-                  return out;
+                  // Daha önce biriken kesinti/kampanya SMS'lerini de temizle
+                  List<Sms> clean = new ArrayList<>();
+                  for (Sms s : q) if (BillFilter.isBill(s.from, s.body)) clean.add(s);
+                  st.setQueue(clean);
+                  if (r.added > 0) st.log("Özete eklendi: " + r.added + " SMS (bekleyen " + clean.size() + ")");
+                  return r;
+              }
+
+              /** Bir sonraki özet zamanı (ms). Kapalıysa 0. */
+              public static long nextDigest(Store st) {
+                  int mode = st.digestMode();
+                  if (mode == 3) return 0;
+                  Calendar c = Calendar.getInstance();
+                  c.setTimeInMillis(st.lastDigest());
+                  c.set(Calendar.HOUR_OF_DAY, 9); c.set(Calendar.MINUTE, 0); c.set(Calendar.SECOND, 0); c.set(Calendar.MILLISECOND, 0);
+                  long last = st.lastDigest();
+                  for (int i = 0; i < 400; i++) {
+                      if (c.getTimeInMillis() > last) {
+                          int dow = c.get(Calendar.DAY_OF_WEEK), dom = c.get(Calendar.DAY_OF_MONTH);
+                          if (mode == 0 && dow == Calendar.MONDAY) break;
+                          if (mode == 1 && (dom == 1 || dom == 15)) break;
+                          if (mode == 2 && dom == 15) break;
+                      }
+                      c.add(Calendar.DAY_OF_MONTH, 1);
+                  }
+                  return c.getTimeInMillis();
+              }
+
+              /** Zamanı geldiyse (ya da force ise) biriken SMS'leri tek mail olarak gönderir. */
+              public static synchronized Result sendDigest(Context ctx, boolean force) {
+                  Store st = new Store(ctx);
+                  Result r = new Result();
+                  List<Sms> q = st.queue();
+                  r.found = q.size();
+                  if (!force) {
+                      long next = nextDigest(st);
+                      if (next == 0 || System.currentTimeMillis() < next) return r;
+                  }
+                  if (q.isEmpty()) {
+                      if (!force) st.setLastDigest(System.currentTimeMillis());
+                      return r;
+                  }
+                  if (!st.configured()) { r.error = "Gmail adresi ve uygulama şifresi girilmemiş"; return r; }
+                  Collections.sort(q, new Comparator<Sms>() { public int compare(Sms a, Sms b) { return Long.compare(a.date, b.date); } });
+                  List<Sms> left = new ArrayList<>(q);
+                  try {
+                      while (!left.isEmpty()) {
+                          List<Sms> part = new ArrayList<>(left.subList(0, Math.min(MAX_PER_MAIL, left.size())));
+                          Smtp.send(HOST, PORT, true, st.email(), st.pass(), st.email(), digestSubject(part), digestBody(part));
+                          for (Sms s : part) st.markSent(s.key());
+                          left.removeAll(part);
+                          st.setQueue(left);
+                          r.sent += part.size(); r.mails++;
+                      }
+                      st.setLastDigest(System.currentTimeMillis());
+                      st.log("Özet maili gönderildi: " + r.sent + " SMS");
+                  } catch (Smtp.SmtpException e) {
+                      r.error = e.code == 535 || e.code == 534
+                              ? "Gmail şifreyi kabul etmedi. 16 haneli uygulama şifresi gerekli."
+                              : "Gmail hatası (" + e.code + ")";
+                      st.log("Hata: " + r.error);
+                  } catch (Exception e) {
+                      r.error = "İnternet yok veya Gmail'e ulaşılamadı";
+                      st.log("Hata: " + r.error + " — sonraki kontrolde tekrar denenecek");
+                  }
+                  return r;
               }
 
               /** Gelen kutusundaki son N günün SMS'leri. */
@@ -266,21 +357,25 @@ jobs:
                   return out;
               }
 
-              public static String subject(Sms s) {
-                  return "Fatura SMS - " + s.from;
+              static String fmt(long t) { return new SimpleDateFormat("dd.MM.yyyy HH:mm", new Locale("tr")).format(new Date(t)); }
+              static String day(long t) { return new SimpleDateFormat("dd.MM.yyyy", new Locale("tr")).format(new Date(t)); }
+
+              public static String digestSubject(List<Sms> l) {
+                  return "Fatura SMS Özeti - " + day(System.currentTimeMillis()) + " (" + l.size() + " SMS)";
               }
 
-              public static String body(Sms s) {
-                  String d = new SimpleDateFormat("dd.MM.yyyy HH:mm", new Locale("tr")).format(new Date(s.date));
-                  return "Bu mail telefondaki bir SMS'ten otomatik iletildi (Fatura SMS uygulaması).\n\n"
-                          + "Gönderen: " + s.from + "\n"
-                          + "SMS tarihi: " + d + "\n\n"
-                          + s.body + "\n";
-              }
-
-              static String shorten(String s) {
-                  s = s.replace('\n', ' ');
-                  return s.length() > 70 ? s.substring(0, 70) + "…" : s;
+              public static String digestBody(List<Sms> l) {
+                  StringBuilder b = new StringBuilder();
+                  b.append("Telefondaki fatura SMS'lerinin özeti (Fatura SMS uygulaması). Toplam ").append(l.size()).append(" SMS.\n\n");
+                  int i = 0;
+                  for (Sms s : l) {
+                      i++;
+                      b.append("===== SMS ").append(i).append("/").append(l.size()).append(" =====\n");
+                      b.append("Gönderen: ").append(s.from).append("\n");
+                      b.append("SMS tarihi: ").append(fmt(s.date)).append("\n\n");
+                      b.append(s.body.trim()).append("\n\n");
+                  }
+                  return b.toString();
               }
           }
           FATURA_EOF
@@ -346,7 +441,8 @@ jobs:
               private Store store;
               private EditText email, pass;
               private TextView status, log;
-              private Button scanBtn, testBtn, updBtn;
+              private Button scanBtn, testBtn, updBtn, digestBtn;
+              private android.widget.RadioGroup modeGroup;
               private TextView updText;
               private Updater.Release pending;
               private boolean checkedUpdate;
@@ -365,9 +461,9 @@ jobs:
                   sv.addView(root);
 
                   root.addView(text("Fatura SMS", 22, true));
-                  root.addView(text("CK Boğaziçi, İSKİ, İGDAŞ gibi kurumlardan gelen fatura SMS'lerini Gmail'ine iletir. "
-                          + "Fatura Takip uygulamasındaki \"Gmail'den yenile\" butonu da bunları otomatik okur. "
-                          + "Doğrulama kodu, banka şifresi gibi mesajlar asla iletilmez.", 14, false));
+                  root.addView(text("CK Boğaziçi, İSKİ, İGDAŞ gibi kurumlardan gelen fatura SMS'lerini biriktirir ve seçtiğin günde "
+                          + "Gmail'ine TEK bir özet maili olarak gönderir. Fatura Takip bu özeti okur. "
+                          + "Kesinti duyuruları, kampanyalar, doğrulama kodları ve banka mesajları gönderilmez.", 14, false));
 
                   root.addView(label("Gmail adresi"));
                   email = new EditText(this);
@@ -387,7 +483,25 @@ jobs:
                   testBtn.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { saveAndTest(); } });
                   root.addView(testBtn);
 
-                  scanBtn = button("Eski fatura SMS'lerini gönder (son 120 gün)");
+                  root.addView(label("Özet maili ne zaman gelsin?"));
+                  modeGroup = new android.widget.RadioGroup(this);
+                  String[] modes = {"Haftada bir (Pazartesi sabahı)", "Ayda iki kez (1'i ve 15'i)", "Ayda bir (15'i)", "Hiç otomatik gönderme (sadece ben basınca)"};
+                  for (int i = 0; i < modes.length; i++) {
+                      android.widget.RadioButton rb = new android.widget.RadioButton(this);
+                      rb.setText(modes[i]); rb.setId(1000 + i);
+                      modeGroup.addView(rb);
+                  }
+                  modeGroup.check(1000 + store.digestMode());
+                  modeGroup.setOnCheckedChangeListener(new android.widget.RadioGroup.OnCheckedChangeListener() {
+                      public void onCheckedChanged(android.widget.RadioGroup g, int id) { store.setDigestMode(id - 1000); refresh(); }
+                  });
+                  root.addView(modeGroup);
+
+                  digestBtn = button("Özeti şimdi gönder (test)");
+                  digestBtn.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { sendNow(); } });
+                  root.addView(digestBtn);
+
+                  scanBtn = button("Eski fatura SMS'lerini özete ekle (son 120 gün)");
                   scanBtn.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { scan(); } });
                   root.addView(scanBtn);
 
@@ -413,6 +527,7 @@ jobs:
 
                   setContentView(sv);
                   askSmsPermission();
+                  DigestReceiver.arm(this);
                   refresh();
               }
 
@@ -420,9 +535,7 @@ jobs:
               protected void onResume() {
                   super.onResume();
                   refresh();
-                  // Bekleyen kuyruk varsa tekrar dene
-                  if (store.configured() && !store.queue().isEmpty()) runForward(new ArrayList<Sms>(), "Bekleyen SMS'ler gönderiliyor…");
-
+                  // Uygulama açılınca mail GÖNDERİLMEZ; sadece durum gösterilir.
               }
 
               /* ---- güncelleme ---- */
@@ -451,8 +564,9 @@ jobs:
                               public void run() {
                                   pending = rr;
                                   updText.setText(m);
-                                  updBtn.setText("Güncelle"); if (rr != null && manual) installUpdate();
+                                  updBtn.setText("Güncelle");
                                   updBtn.setEnabled(true);
+                                  if (rr != null && manual) installUpdate();
                               }
                           });
                       }
@@ -488,8 +602,12 @@ jobs:
                   String s;
                   if (!perm) s = "⚠️ SMS izni verilmedi. Uygulama çalışamaz.";
                   else if (!store.configured()) s = "⚠️ Gmail uygulama şifresini gir ve test et.";
-                  else s = "✅ Hazır. Yeni fatura SMS'leri otomatik iletilecek. Toplam iletilen: " + store.sentCount()
-                          + (store.queue().isEmpty() ? "" : " · Bekleyen: " + store.queue().size());
+                  else {
+                      long n = Forwarder.nextDigest(store);
+                      s = "✅ Hazır. Özette bekleyen: " + store.queue().size() + " SMS"
+                          + (n == 0 ? " · Otomatik gönderim kapalı" : " · Sonraki özet: " + Forwarder.day(n))
+                          + " · Şimdiye kadar iletilen: " + store.sentCount();
+                  }
                   status.setText(s);
                   log.setText(store.logText());
               }
@@ -512,7 +630,7 @@ jobs:
                               Smtp.send(Forwarder.HOST, Forwarder.PORT, true, to, pwd, to, "Fatura SMS test",
                                       "Fatura SMS uygulaması Gmail'e bağlandı. Bu maili silebilirsin.");
                               store.log("Test maili gönderildi");
-                              msg = "✅ Test maili gönderildi. Şimdi eski SMS'leri gönderebilirsin.";
+                              msg = "✅ Test maili gönderildi.";
                           } catch (Smtp.SmtpException ex) {
                               msg = (ex.code == 535 || ex.code == 534)
                                       ? "❌ Gmail şifreyi kabul etmedi. 16 haneli uygulama şifresini kontrol et (2 adımlı doğrulama açık olmalı)."
@@ -538,24 +656,24 @@ jobs:
                       status.setText("SMS'ler okunamadı: " + e.getMessage());
                       return;
                   }
-                  runForward(inbox, inbox.size() + " SMS tarandı, faturalar gönderiliyor…");
+                  Forwarder.Result r = Forwarder.collect(this, inbox);
+                  refresh();
+                  status.setText(inbox.size() + " SMS tarandı. " + r.added + " fatura SMS'i özete eklendi (bekleyen " + store.queue().size() + "). Mail gönderilmedi.");
               }
 
-              private void runForward(final List<Sms> list, String busyMsg) {
-                  setBusy(true, busyMsg);
+              private void sendNow() {
+                  if (!store.configured()) { status.setText("Önce Gmail uygulama şifresini girip test et."); return; }
+                  if (store.queue().isEmpty()) { status.setText("Özette bekleyen SMS yok. Önce \"Eski fatura SMS'lerini özete ekle\"ye basabilirsin."); return; }
+                  setBusy(true, "Özet maili gönderiliyor…");
                   new Thread(new Runnable() {
                       public void run() {
-                          final Forwarder.Result r = Forwarder.process(MainActivity.this, list);
+                          final Forwarder.Result r = Forwarder.sendDigest(MainActivity.this, true);
                           runOnUiThread(new Runnable() {
                               public void run() {
                                   setBusy(false, null);
                                   refresh();
-                                  String m;
-                                  if (r.found == 0) m = "Fatura SMS'i bulunamadı.";
-                                  else m = r.sent + " fatura SMS'i gönderildi"
-                                          + (r.skipped > 0 ? ", " + r.skipped + " zaten gönderilmişti" : "")
-                                          + (r.failed > 0 ? ", " + r.failed + " gönderilemedi (" + r.error + ")" : "") + ".";
-                                  status.setText(m);
+                                  status.setText(r.error != null ? "❌ " + r.error
+                                          : "✅ " + r.sent + " SMS tek özet mailinde gönderildi" + (r.mails > 1 ? " (" + r.mails + " parça)" : "") + ".");
                               }
                           });
                       }
@@ -564,6 +682,7 @@ jobs:
 
               private void setBusy(boolean busy, String msg) {
                   scanBtn.setEnabled(!busy);
+                  digestBtn.setEnabled(!busy);
                   testBtn.setEnabled(!busy);
                   if (msg != null) status.setText(msg);
               }
@@ -662,7 +781,7 @@ jobs:
           import java.util.List;
           import java.util.Map;
 
-          /** Yeni gelen SMS'leri yakalar, fatura ise Gmail'e iletir. */
+          /** Yeni gelen SMS'leri yakalar, fatura ise özet kuyruğuna ekler. */
           public class SmsReceiver extends BroadcastReceiver {
               @Override
               public void onReceive(final Context context, Intent intent) {
@@ -698,7 +817,8 @@ jobs:
                       @Override
                       public void run() {
                           try {
-                              Forwarder.process(context, list);
+                              Forwarder.collect(context, list);
+                              Forwarder.sendDigest(context, false);
                           } catch (Throwable ignored) {
                           } finally {
                               pr.finish();
@@ -882,6 +1002,17 @@ jobs:
                   } catch (Exception ignored) {}
                   sp.edit().putString("queue", a.toString()).apply();
               }
+
+              /* ---- özet maili ayarı ---- */
+              /** 0 = haftalık (Pazartesi), 1 = ayda 2 (1'i ve 15'i), 2 = ayda 1 (15'i), 3 = kapalı (sadece elle) */
+              public int digestMode() { return sp.getInt("digestMode", 0); }
+              public void setDigestMode(int m) { sp.edit().putInt("digestMode", m).apply(); }
+              public long lastDigest() {
+                  long v = sp.getLong("lastDigest", 0);
+                  if (v == 0) { v = System.currentTimeMillis(); sp.edit().putLong("lastDigest", v).apply(); }
+                  return v;
+              }
+              public void setLastDigest(long t) { sp.edit().putLong("lastDigest", t).apply(); }
 
               /* ---- günlük ---- */
               public synchronized void log(String line) {
