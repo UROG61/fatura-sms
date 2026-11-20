@@ -155,7 +155,7 @@ jobs:
           <title>Fatura Takip</title>
           <style>
           :root{--bg:#f6f7f9;--card:#fff;--ink:#16181d;--mute:#6b7280;--line:#e5e7eb;--acc:#2563eb;--ok:#16a34a;--warn:#d97706;--bad:#dc2626;--el:#eab308;--su:#0ea5e9;--gaz:#f97316;--dg:#8b5cf6}
-          @media (prefers-color-scheme:dark){:root{--bg:#0f1115;--card:#181b21;--ink:#eceef2;--mute:#9aa1ad;--line:#2a2e36;--acc:#60a5fa}}
+
           *{box-sizing:border-box}
           body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
           .wrap{max-width:720px;margin:0 auto;padding:14px 14px 90px}
@@ -218,9 +218,9 @@ jobs:
           @keyframes s{to{transform:rotate(360deg)}}
 
           :root{--teal:#2bb3cf;--teal2:#1b9fbd;--navy:#0b2a6b;--track:#e3e8f0;--pill-bad:#fbd5dd;--pill-ok:#d5f3e0}
-          @media (prefers-color-scheme:dark){:root{--navy:#cfe0ff;--track:#2a3140;--pill-bad:#4a1f2a;--pill-ok:#173a26}}
+
           .hero{margin:-14px -14px 0;padding:18px 18px 46px;background:linear-gradient(135deg,#d9f2fb,#eef9fd 60%,#cdeef8);color:#1f2937}
-          @media (prefers-color-scheme:dark){.hero{background:linear-gradient(135deg,#0f2a36,#132430);color:#e5e7eb}}
+
           .hero h2{margin:0;font-size:22px;font-weight:500}
           .hero .sub{color:inherit;opacity:.75}
           .hs{display:flex;align-items:flex-start;overflow-x:auto;scroll-snap-type:x mandatory;scroll-padding:0 14px;gap:12px;margin:-30px -14px 0;padding:0 14px 6px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
@@ -264,10 +264,51 @@ jobs:
           .bnav button.on{color:var(--teal2);font-weight:700}
           .bnav button.on span{background:var(--teal);color:#fff}
 
+          /* ---------- koyu tema (OLED) ---------- */
+          html[data-theme=dark]{color-scheme:dark}
+          html[data-theme=dark]{--bg:#000;--card:#0c0e11;--ink:#e7e9ec;--mute:#878e98;--line:#1a1e24;--acc:#5eb3d6;--ok:#4cc38a;--warn:#e0a24a;--bad:#ef5d6f;
+           --el:#d9b63c;--su:#3fa9d6;--gaz:#e8854a;--dg:#9b86e0;--teal:#3aa9bf;--teal2:#58bcd0;--navy:#eef3fa;--track:#161a20;--pill-bad:rgba(239,93,111,.13);--pill-ok:rgba(76,195,138,.13)}
+          html[data-theme=dark] body{background:#000}
+          html[data-theme=dark] .hero{background:radial-gradient(120% 140% at 0% 0%,#0a2530 0%,#05141a 45%,#000 85%);color:#e7e9ec}
+          html[data-theme=dark] .hc{background:#0c0e11;border-color:#181c22;box-shadow:0 0 0 1px rgba(255,255,255,.02),0 12px 30px rgba(0,0,0,.6)}
+          html[data-theme=dark] .card,html[data-theme=dark] .hsum div{background:#0c0e11;border-color:#181c22}
+          html[data-theme=dark] .hsel{border-color:#1d2229;background:#0f1216}
+          html[data-theme=dark] .chip2{background:#14181d;color:#cfd4da}
+          html[data-theme=dark] .pill.bad{color:#ff7d8c}
+          html[data-theme=dark] .pill.ok{color:#5fd39b}
+          html[data-theme=dark] .hb .fl{background:#1f4d58}
+          html[data-theme=dark] .hb.sel .fl{background:#3aa9bf}
+          html[data-theme=dark] .hb.unp .fl{background:#c9405a}
+          html[data-theme=dark] .hb .ex{background:#d94a60}
+          html[data-theme=dark] .bigbtn{background:linear-gradient(90deg,#2b8ea3,#1f7488);box-shadow:none;color:#f2fbfd}
+          html[data-theme=dark] .bigbtn.okb{background:linear-gradient(90deg,#2f9a68,#237a52)}
+          html[data-theme=dark] .bigbtn.out{background:transparent;border-color:#2c6c7a;color:#6cc6d8}
+          html[data-theme=dark] .bnav{background:rgba(0,0,0,.92);border-top-color:#15191e;backdrop-filter:blur(10px)}
+          html[data-theme=dark] .bnav button{color:#6f7680}
+          html[data-theme=dark] .bnav button.on{color:#6cc6d8}
+          html[data-theme=dark] .bnav button.on span{background:#123a44;color:#bfeaf3}
+          html[data-theme=dark] .dots i{background:#262b33}
+          html[data-theme=dark] .dots i.on{background:#3aa9bf}
+          html[data-theme=dark] button{background:#111418;border-color:#1f242b;color:#d9dde2}
+          html[data-theme=dark] button.on{background:#10323b;color:#bfeaf3;border-color:#1f5562}
+          html[data-theme=dark] button.pri{background:#2b8ea3;border-color:#2b8ea3;color:#fff}
+          html[data-theme=dark] .badge.b-paid{background:rgba(76,195,138,.12)}
+          html[data-theme=dark] .badge.b-over{background:rgba(239,93,111,.12)}
+          html[data-theme=dark] .badge.b-soon{background:rgba(224,162,74,.12)}
+          html[data-theme=dark] .badge.b-open{background:rgba(94,179,214,.12)}
+          html[data-theme=dark] .t-elektrik,html[data-theme=dark] .t-su,html[data-theme=dark] .t-dogalgaz,html[data-theme=dark] .t-diger{background:#14181d}
+          html[data-theme=dark] td,html[data-theme=dark] th{border-bottom-color:#171b20}
+          html[data-theme=dark] .err{color:#ff8a97}
+          .themes{display:flex;gap:6px;margin-top:10px}.themes button{flex:1;padding:8px;border-radius:12px;font-size:13px}
+
           .hero .row{align-items:center}.hero a{text-decoration:none}
           body{-webkit-tap-highlight-color:transparent;overscroll-behavior-y:contain}
           .wrap{padding-bottom:100px}
           .syncbtn{border:0;background:rgba(255,255,255,.75);color:#0e7490;font-weight:700;font-size:15px;padding:10px 16px;border-radius:99px;box-shadow:0 2px 8px rgba(0,0,0,.08)}.syncbtn:disabled{opacity:1;color:#64748b}
+          html[data-theme=dark] .syncbtn{background:rgba(255,255,255,.06);color:#7fd0e0;box-shadow:none;border:1px solid #1d3a42}
+          html[data-theme=dark] .syncbtn:disabled{color:#7a828c}
+          html[data-theme=dark] .bnav button,html[data-theme=dark] .bnav button.on{background:none;border:0}
+          html[data-theme=dark] .bnav button.on{color:#6cc6d8}
           </style>
           </head>
           <body>
@@ -291,6 +332,12 @@ jobs:
           function subKey(b){return b.aboneNo?"a:"+b.aboneNo:"p:"+(b.provider||"")}
           function nameOf(k,f){return(D.names||{})[k]||((f.provider||"Fatura")+(f.aboneNo?" · "+String(f.aboneNo).slice(-4):""))}
 
+          /* ---------- tema ---------- */
+          var theme=(A&&A.getTheme?A.getTheme():"")||"system";
+          var mq=window.matchMedia?matchMedia("(prefers-color-scheme: dark)"):null;
+          function applyTheme(){var dark=theme==="dark"||(theme==="system"&&mq&&mq.matches);document.documentElement.setAttribute("data-theme",dark?"dark":"light");if(A&&A.bars)A.bars(dark)}
+          if(mq&&mq.addEventListener)mq.addEventListener("change",applyTheme);
+          applyTheme();
           function load(){try{D=JSON.parse(A?A.data():"{}")}catch(e){D={}}D.bills=D.bills||[];D.notices=D.notices||[];D.subState=D.subState||{};D.names=D.names||{}}
           window.reload=function(){load();render()};
           window.syncState=function(on,msg){ui.syncing=on;if(msg!=null)ui.msg=msg;paintSync();if(on)poll()};
@@ -401,11 +448,20 @@ jobs:
             return h+L.map(function(b){var T=TYPES[b.type]||TYPES.diger,k=subKey(b);return'<div class="card"><div class="bill"><div class="ic t-'+b.type+'">'+T.i+'</div><div class="grow"><div class="row"><b>'+esc(nameOf(k,b))+'</b><span class="amt">'+tl(b.amount)+'</span></div><div class="row"><span class="sub">'+(b.period?trPeriod(b.period):"")+(b.consumption!=null?' · '+fmtN(b.consumption,1)+' '+esc(b.unit||T.u):'')+'</span>'+badge(b)+'</div><div class="acts">'+(b.noPay?'':b.paid?'<button class="sm" data-a="paid" data-id="'+b.id+'" data-v="0">Ödenmedi yap</button>'+(b.assumed?'<button class="sm pri" data-a="paid" data-id="'+b.id+'" data-v="1">Ödendiğini onayla</button>':''):'<button class="sm pri" data-a="paid" data-id="'+b.id+'" data-v="1">Ödendi ✓</button>')+(b.link?'<button class="sm" data-a="link" data-u="'+esc(b.link)+'">Faturayı gör ↗</button>':'')+'<button class="sm danger" data-a="del" data-id="'+b.id+'">Sil</button></div></div></div></div>'}).join("");
           }
 
+          /* ---------- ayarlar ---------- */
+          function moreView(){
+            var h='<h1 style="margin:6px 0 12px">Ayarlar</h1>';
+            h+='<div class="card"><b>Görünüm</b><div class="sub">Koyu tema OLED ekranlar için gerçek siyah kullanır.</div><div class="themes">'+[["light","☀️ Açık"],["dark","🌙 Koyu"],["system","📱 Sistem"]].map(function(t){return'<button data-a="theme" data-v="'+t[0]+'" class="'+(theme===t[0]?"on":"")+'">'+t[1]+'</button>'}).join("")+'</div></div>';
+            h+='<div class="card" data-a="settings" style="cursor:pointer"><div class="row"><b>📩 Gmail, SMS ve güncelleme</b><span class="sub">›</span></div><div class="sub">Gmail bağlantısı, faturaları yeniden tarama, yeni sürüm</div></div>';
+            h+='<div class="sub" style="text-align:center;margin-top:16px">Fatura Takip '+esc(A&&A.version?A.version():"")+'</div>';
+            return h;
+          }
+
           /* ---------- çizim ---------- */
           function render(){
             var home=ui.tab==="home";
-            var h='<div class="wrap">'+(home?homeView():ui.tab==="subs"?subsView():listView())+'</div>'+
-            '<nav class="bnav"><div>'+[["home","🏠","Ana Sayfa"],["subs","🏘️","Aboneliklerim"],["list","🧾","Faturalarım"],["settings","⚙️","Ayarlar"]].map(function(t){return'<button data-a="'+(t[0]==="settings"?"settings":"tab")+'" data-t="'+t[0]+'" class="'+(ui.tab===t[0]?"on":"")+'"><span>'+t[1]+'</span>'+t[2]+'</button>'}).join("")+'</div></nav>';
+            var h='<div class="wrap">'+(home?homeView():ui.tab==="subs"?subsView():ui.tab==="more"?moreView():listView())+'</div>'+
+            '<nav class="bnav"><div>'+[["home","🏠","Ana Sayfa"],["subs","🏘️","Aboneliklerim"],["list","🧾","Faturalarım"],["more","⚙️","Ayarlar"]].map(function(t){return'<button data-a="tab" data-t="'+t[0]+'" class="'+(ui.tab===t[0]?"on":"")+'"><span>'+t[1]+'</span>'+t[2]+'</button>'}).join("")+'</div></nav>';
             document.getElementById("root").innerHTML=h;
             if(home)homeAfter();
           }
@@ -413,6 +469,7 @@ jobs:
             var el=e.target.closest("[data-a]");if(!el)return;e.preventDefault();var a=el.dataset.a;
             if(a==="tab"){ui.tab=el.dataset.t;render();window.scrollTo(0,0)}
             else if(a==="settings"){A&&A.settings()}
+            else if(a==="theme"){theme=el.dataset.v;A&&A.setTheme&&A.setTheme(theme);applyTheme();render()}
             else if(a==="sync"){if(ui.syncing)return;ui.syncing=true;ui.msg="";paintSync();A&&A.sync();poll()}
             else if(a==="hpick"){ui.homeSel[el.dataset.k]=el.dataset.id;render()}
             else if(a==="gosub"){ui.tab="subs";ui.openSub=el.dataset.k;render();setTimeout(function(){var c=document.getElementById("s_"+el.dataset.k);if(c)c.scrollIntoView({block:"start"})},30)}
@@ -992,6 +1049,7 @@ jobs:
 
               @Override
               protected void onCreate(Bundle b) {
+                  if (WebActivity.isDark(this)) setTheme(android.R.style.Theme_Material);
                   super.onCreate(b);
                   store = new Store(this);
                   DigestReceiver.arm(this);
@@ -2404,6 +2462,7 @@ jobs:
 
           import android.Manifest;
           import android.app.Activity;
+          import android.content.Context;
           import android.content.Intent;
           import android.content.pm.PackageManager;
           import android.graphics.Color;
@@ -2433,9 +2492,9 @@ jobs:
                       // İlk kurulum: önce ayarlar
                       startActivity(new Intent(this, MainActivity.class).putExtra("settings", true).putExtra("first", true));
                   }
-                  getWindow().setStatusBarColor(Color.parseColor("#D9F2FB"));
-                  getWindow().getDecorView().setSystemUiVisibility(android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
                   web = new WebView(this);
+                  applyBars(isDark(this));
+                  web.setBackgroundColor(isDark(this) ? Color.BLACK : Color.parseColor("#F6F7F9"));
                   WebSettings ws = web.getSettings();
                   ws.setJavaScriptEnabled(true);
                   ws.setDomStorageEnabled(true);
@@ -2468,6 +2527,30 @@ jobs:
                   if (web != null) {
                       web.evaluateJavascript("window.back?back():false", v -> { if (!"true".equals(v)) WebActivity.super.onBackPressed(); });
                   } else super.onBackPressed();
+              }
+
+              /** Kayıtlı tema: light | dark | system */
+              static String theme(Context c) { return c.getSharedPreferences("faturasms", MODE_PRIVATE).getString("theme", "system"); }
+
+              static boolean isDark(Context c) {
+                  String t = theme(c);
+                  if ("dark".equals(t)) return true;
+                  if ("light".equals(t)) return false;
+                  int n = c.getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
+                  return n == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+              }
+
+              private void applyBars(boolean dark) {
+                  android.view.Window w = getWindow();
+                  w.setStatusBarColor(dark ? Color.BLACK : Color.parseColor("#D9F2FB"));
+                  w.setNavigationBarColor(dark ? Color.BLACK : Color.WHITE);
+                  int f = 0;
+                  if (!dark) {
+                      f |= android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+                      if (Build.VERSION.SDK_INT >= 26) f |= android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+                  }
+                  w.getDecorView().setSystemUiVisibility(f);
+                  if (web != null) web.setBackgroundColor(dark ? Color.BLACK : Color.parseColor("#F6F7F9"));
               }
 
               private boolean hasSms() {
@@ -2530,6 +2613,11 @@ jobs:
                           return o.toString();
                       } catch (Exception e) { return "{}"; }
                   }
+                  @JavascriptInterface public String getTheme() { return theme(WebActivity.this); }
+                  @JavascriptInterface public void setTheme(String t) {
+                      getSharedPreferences("faturasms", MODE_PRIVATE).edit().putString("theme", t).apply();
+                  }
+                  @JavascriptInterface public void bars(final boolean dark) { runOnUiThread(() -> applyBars(dark)); }
                   @JavascriptInterface public String version() { return Updater.installedName(WebActivity.this); }
               }
           }
